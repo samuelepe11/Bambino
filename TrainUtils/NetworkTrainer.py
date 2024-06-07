@@ -8,9 +8,9 @@ import time
 import pickle
 import matplotlib.pyplot as plt
 import optuna
-import torchaudio
 from torch.utils.data import DataLoader
 from torcheval.metrics.functional import multiclass_confusion_matrix
+from sklearn.metrics import roc_auc_score
 
 from DataUtils.OpenFaceDataset import OpenFaceDataset
 from Types.TaskType import TaskType
@@ -27,11 +27,12 @@ class NetworkTrainer:
     convergence_patience = 3
     convergence_thresh = 1e-3
 
-    def __init__(self, model_name, working_dir, task_type, net_type, epochs, batch_size, val_epochs, params=None):
+    def __init__(self, model_name, working_dir, task_type, net_type, epochs, val_epochs, params=None,
+                 use_cuda=True):
         # Initialize attributes
         self.model_name = model_name
         self.working_dir = working_dir
-        self.results_dir = working_dir + OpenFaceDataset.results_fold
+        self.results_dir = working_dir + OpenFaceDataset.results_fold + OpenFaceDataset.models_fold
         if model_name not in os.listdir(self.results_dir):
             os.mkdir(self.results_dir + model_name)
         self.results_dir += model_name + "/"
@@ -59,7 +60,7 @@ class NetworkTrainer:
 
         # Define training parameters
         self.epochs = epochs
-        self.batch_size = batch_size
+        self.batch_size = self.net.batch_size
         self.val_epochs = val_epochs
 
         self.criterion = nn.CrossEntropyLoss()
@@ -72,7 +73,10 @@ class NetworkTrainer:
         self.val_eval_epochs = []
         self.optuna_study = None
 
-        self.use_cuda = torch.cuda.is_available()
+        self.use_cuda = torch.cuda.is_available() and use_cuda
+        # Otherwise CUDA runs out of memory
+        if params is not None and params["n_conv_neurons"] > 1000:
+            self.use_cuda = False
         self.device = torch.device("cuda" if self.use_cuda else "cpu")
 
         # Load datasets
@@ -159,7 +163,8 @@ class NetworkTrainer:
 
         self.save_model(trial_n)
         if trial_n is not None:
-            _, val_stats = self.summarize_performance(show_test=False, show_process=False, show_cm=False)
+            _, val_stats = self.summarize_performance(show_test=False, show_process=False, show_cm=False,
+                                                      trial_n=trial_n)
             return val_stats.f1
 
     def apply_network(self, net, x, y):
@@ -190,17 +195,18 @@ class NetworkTrainer:
 
         return data, data_loader, dim
 
-    def compute_stats(self, y_true, y_pred, loss, acc):
+    def compute_stats(self, y_true, y_pred, loss, acc, desired_class=None):
         cm = NetworkTrainer.compute_binary_confusion_matrix(y_true, y_pred, range(len(self.classes)))
         tp = cm[0]
         tn = cm[1]
         fp = cm[2]
         fn = cm[3]
+        auc = NetworkTrainer.compute_binary_auc(y_true, y_pred, range(len(self.classes)))
 
-        stats = StatsHolder(loss, acc, tp, tn, fp, fn)
+        stats = StatsHolder(loss, acc, tp, tn, fp, fn, auc, desired_class=desired_class)
         return stats
 
-    def test(self, set_type=SetType.TRAIN, show_cm=False):
+    def test(self, set_type=SetType.TRAIN, show_cm=False, desired_class=None):
         if self.use_cuda:
             self.net.set_cuda()
             self.criterion = self.criterion.cuda()
@@ -229,7 +235,7 @@ class NetworkTrainer:
             loss /= dim
             acc = torch.sum(y_true == y_pred) / dim
             acc = acc.item()
-        stats_holder = self.compute_stats(y_true, y_pred, loss, acc)
+        stats_holder = self.compute_stats(y_true, y_pred, loss, acc, desired_class=desired_class)
 
         # Compute multiclass confusion matrix
         cm_name = set_type.value + "_cm"
@@ -254,37 +260,50 @@ class NetworkTrainer:
                   str(np.round(self.train_losses[0], 4)) + " -> " + str(np.round(self.train_losses[-1],
                                                                                  4)))
 
-    def summarize_performance(self, show_test=False, show_process=False, show_cm=False):
+    def summarize_performance(self, show_test=False, show_process=False, show_cm=False, desired_class=None,
+                              trial_n=None):
         # Show final losses
-        train_stats = self.test(set_type=SetType.TRAIN, show_cm=show_cm)
+        train_stats = self.test(set_type=SetType.TRAIN, show_cm=show_cm, desired_class=desired_class)
         print("Training loss = " + str(np.round(train_stats.loss, 5)) + " - Training accuracy = " +
               str(np.round(train_stats.acc * 100, 7)) + "% - Training F1-score = " +
               str(np.round(train_stats.f1 * 100, 7)))
-        val_stats = self.test(set_type=SetType.VAL, show_cm=show_cm)
+        if desired_class is not None:
+            NetworkTrainer.show_performance_table(train_stats, "training")
+
+        val_stats = self.test(set_type=SetType.VAL, show_cm=show_cm, desired_class=desired_class)
         print("Validation loss = " + str(np.round(val_stats.loss, 5)) + " - Validation accuracy = " +
               str(np.round(val_stats.acc * 100, 7)) + "% - Validation F1-score = " +
               str(np.round(val_stats.f1 * 100, 7)))
+        if desired_class is not None:
+            NetworkTrainer.show_performance_table(val_stats, "validation")
+
         if show_test:
-            test_stats = self.test(set_type=SetType.TEST, show_cm=show_cm)
+            test_stats = self.test(set_type=SetType.TEST, show_cm=show_cm, desired_class=desired_class)
             print("Test loss = " + str(np.round(test_stats.loss, 5)) + " - Test accuracy = " +
                   str(np.round(test_stats.acc * 100, 7)) + "% - Test F1-score = " +
                   str(np.round(test_stats.f1 * 100, 7)))
+            if desired_class is not None:
+                NetworkTrainer.show_performance_table(test_stats, "test")
 
-        if show_process:
+        if show_process or trial_n is not None:
             plt.plot(self.train_losses, "b", label="Training set")
             plt.plot(self.val_eval_epochs, self.val_losses, "g", label="Validation set")
             plt.legend()
             plt.title("Training curves")
             plt.ylabel("Loss")
             plt.xlabel("Epoch")
-            plt.show()
+            if show_process:
+                plt.show()
+            if trial_n is not None:
+                plt.savefig(self.results_dir + "trial_" + str(trial_n - 1) + "_curves.jpg")
+                plt.close()
 
         return train_stats, val_stats
 
-    def show_clinician_stim_performance(self, set_type=SetType.TRAIN):
+    def show_clinician_stim_performance(self, set_type=SetType.TRAIN, desired_class=None):
         data, _, dim = self.select_dataset(set_type)
 
-        if data.clinician_stats is None:
+        if data.clinician_stats is not None:
             # Get true labels and predicted values
             y_true = []
             y_pred = []
@@ -300,7 +319,7 @@ class NetworkTrainer:
             # Get evaluation metrics
             acc = torch.sum(y_true == y_pred) / dim
             acc = acc.item()
-            data.clinician_stats = self.compute_stats(y_true, y_pred, None, acc)
+            data.clinician_stats = self.compute_stats(y_true, y_pred, None, acc, desired_class=desired_class)
 
             # Compute multiclass confusion matrix
             y_true = y_true.to(torch.int64)
@@ -315,6 +334,8 @@ class NetworkTrainer:
         # Show performance
         print(set_type.value + ": Clinician accuracy = " + str(np.round(data.clinician_stats.acc * 100, 7)) +
               "% - Clinician F1-score = " + str(np.round(data.clinician_stats.f1 * 100, 7)) + "%")
+        if desired_class is not None:
+            NetworkTrainer.show_performance_table(data.clinician_stats, set_type.value)
 
     @staticmethod
     def compute_binary_confusion_matrix(y_true, y_predicted, classes=None):
@@ -341,6 +362,22 @@ class NetworkTrainer:
             return out
 
     @staticmethod
+    def compute_binary_auc(y_true, y_predicted, classes):
+        y_true = y_true.cpu()
+        y_predicted = y_predicted.cpu()
+
+        # One VS Rest computation for Macro-Averaged AUC
+        out = []
+        for c in classes:
+            y_true_i = (y_true == c).to(int)
+            y_predicted_i = (y_predicted == c).to(int)
+            out_i = roc_auc_score(y_true_i, y_predicted_i)
+            out.append(out_i)
+
+        out = np.asarray(out)
+        return out
+
+    @staticmethod
     def compute_multiclass_confusion_matrix(y_true, y_pred, classes, img_path=None):
         # Compute confusion matrix
         cm = multiclass_confusion_matrix(y_pred, y_true, len(classes))
@@ -353,13 +390,13 @@ class NetworkTrainer:
 
     @staticmethod
     def draw_multiclass_confusion_matrix(cm, labels, img_path):
-        plt.figure(figsize=(8, 8))
+        plt.figure(figsize=(4, 4))
         cm = cm.cpu()
-        plt.imshow(cm, cmap="jet")
+        plt.imshow(cm, cmap="Reds")
         for i in range(cm.shape[0]):
             for j in range(cm.shape[1]):
                 val = cm[i, j]
-                plt.text(i, j, f"{val.item()}", ha="center", va="center", color="black")
+                plt.text(j, i, f"{val.item()}", ha="center", va="center", color="black")
         plt.xticks(range(len(labels)), labels, rotation=45)
         plt.xlabel("Predicted class")
         plt.yticks(range(len(labels)), labels, rotation=45)
@@ -375,15 +412,17 @@ class NetworkTrainer:
         return batch_inputs, batch_labels
 
     @staticmethod
-    def load_model(working_dir, model_name, trial_n=None):
+    def load_model(working_dir, model_name, trial_n=None, use_cuda=True):
         if trial_n is None:
             file_name = model_name
         else:
             file_name = "trial_" + str(trial_n)
-        filepath = working_dir + OpenFaceDataset.results_fold + model_name + "/" + file_name + ".pt"
+        filepath = (working_dir + OpenFaceDataset.results_fold + OpenFaceDataset.models_fold + model_name + "/" +
+                    file_name + ".pt")
         with open(filepath, "rb") as file:
             network_trainer = pickle.load(file)
 
+        network_trainer.use_cuda = torch.cuda.is_available() and use_cuda
         return network_trainer
 
     @staticmethod
@@ -405,6 +444,12 @@ class NetworkTrainer:
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
 
+    @staticmethod
+    def show_performance_table(stats, set_name):
+        print("Performance for", set_name.upper() + ":")
+        for stat in StatsHolder.table_stats:
+            print(" - " + stat + ": " + str(np.round(stats.__dict__["target_" + stat] * 100, 2)) + "%")
+
 
 # Main
 if __name__ == "__main__":
@@ -413,34 +458,35 @@ if __name__ == "__main__":
 
     # Define variables
     working_dir1 = "./../../"
-    model_name1 = "stimulus_conv2d_optuna"
+    model_name1 = "stimulus_conv2d1"
     net_type1 = NetType.CONV2D
     task_type1 = TaskType.STIM
-    epochs1 = 100
-    trial_n1 = 2
-    batch_size1 = 64
+    epochs1 = 2
+    trial_n1 = 0
     val_epochs1 = 10
+    use_cuda1 = False
 
     # Define trainer
     params1 = {"n_conv_neurons": 1536, "n_conv_layers": 1, "kernel_size": 7, "hidden_dim": 64, "p_drop": 0.5,
-               "n_extra_fc_after_conv": 1, "n_extra_fc_final": 1, "optimizer": "RMSprop", "lr": 0.008}  # stimulus_conv1
-    params1 = {"n_conv_neurons": 256, "n_conv_layers": 1, "kernel_size": 3, "hidden_dim": 64, "p_drop": 0.5,
-               "n_extra_fc_after_conv": 1, "n_extra_fc_final": 1, "optimizer": "RMSprop", "lr": 0.001}  # stimulus_conv2
+               "n_extra_fc_after_conv": 1, "n_extra_fc_final": 1, "optimizer": "RMSprop", "lr": 0.008, "batch_size": 64}  # stimulus_conv1
+    params1 = {'n_conv_neurons': 512, 'n_conv_layers': 1, 'kernel_size': 3, 'hidden_dim': 64, 'p_drop': 0.2,
+               'n_extra_fc_after_conv': 0, 'n_extra_fc_final': 0, 'optimizer': 'RMSprop', 'lr': 0.01, 'batch_size': 32}  # stimulus_conv2
     trainer1 = NetworkTrainer(model_name=model_name1, working_dir=working_dir1, task_type=task_type1,
-                              net_type=net_type1, epochs=epochs1, batch_size=batch_size1,
-                              val_epochs=val_epochs1, params=params1)
+                              net_type=net_type1, epochs=epochs1, val_epochs=val_epochs1, params=params1,
+                              use_cuda=use_cuda1)
 
     # Show clinician performance
-    #trainer1.show_clinician_stim_performance(set_type=SetType.TRAIN)
-    #trainer1.show_clinician_stim_performance(set_type=SetType.VAL)
+    # trainer1.show_clinician_stim_performance(set_type=SetType.TRAIN, desired_class=0)
+    # trainer1.show_clinician_stim_performance(set_type=SetType.VAL, desired_class=0)
 
     # Train model
     print()
-    # trainer1.train(show_epochs=True)
+    trainer1.train(show_epochs=True)
     
     # Evaluate model
-    trainer1 = NetworkTrainer.load_model(working_dir=working_dir1, model_name=model_name1, trial_n=trial_n1)
-    trainer1.summarize_performance(show_test=False, show_process=True, show_cm=True)
+    trainer1 = NetworkTrainer.load_model(working_dir=working_dir1, model_name=model_name1, trial_n=trial_n1,
+                                         use_cuda=use_cuda1)
+    trainer1.summarize_performance(show_test=False, show_process=True, desired_class=0, show_cm=True)
 
     # Retrain model
     # trainer1.train(show_epochs=True)

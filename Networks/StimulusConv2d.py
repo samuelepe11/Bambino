@@ -34,6 +34,7 @@ class StimulusConv2d(StimulusConv1d):
                                                                     kernel_size=self.kernel_size, stride=1)
                 self.__dict__["relu_" + block + str(i)] = nn.ReLU()
                 self.__dict__["pool_" + block + str(i)] = nn.MaxPool2d(kernel_size=(1, 2))
+                # self.__dict__["batch_norm_" + block + str(i)] = nn.BatchNorm2d(self.layer_dims[block][i + 1])
                 self.__dict__["drop_" + block + str(i)] = nn.Dropout2d(p=self.p_drop)
 
             self.__dict__["fc_" + block + "0"] = nn.Linear(self.layer_dims[block][-1], self.hidden_dim)

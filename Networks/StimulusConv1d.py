@@ -21,6 +21,7 @@ class StimulusConv1d(nn.Module):
             self.kernel_size = 3
             self.hidden_dim = 64
             self.lr = 0.001
+            self.batch_size = 32
             self.p_drop = 0.5
             self.n_extra_fc_after_conv = 0
             self.n_extra_fc_final = 0
@@ -29,6 +30,7 @@ class StimulusConv1d(nn.Module):
             self.kernel_size = params["kernel_size"]
             self.hidden_dim = params["hidden_dim"]
             self.lr = params["lr"]
+            self.batch_size = params["batch_size"]
             self.p_drop = params["p_drop"]
             self.n_extra_fc_after_conv = params["n_extra_fc_after_conv"]
             self.n_extra_fc_final = params["n_extra_fc_final"]
@@ -89,6 +91,8 @@ class StimulusConv1d(nn.Module):
 
                 out = self.__dict__["relu_" + block + str(i)](out)
                 out = self.__dict__["pool_" + block + str(i)](out)
+                # if self.is_2d:
+                #     out = self.__dict__["batch_norm_" + block + str(i)](out)
                 out = self.__dict__["drop_" + block + str(i)](out)
 
             out = torch.mean(out, dim=dim)

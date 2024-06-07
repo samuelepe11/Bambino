@@ -19,6 +19,7 @@ class OpenFaceDataset(Dataset):
     data_fold = "data/"
     preliminary_fold = "preliminary_analysis/"
     results_fold = "results/"
+    models_fold = "models/"
 
     trial_types = ["control", "stimulus"]
     age_groups = ["7-11", "12-18", "19-24"]
@@ -203,8 +204,16 @@ class OpenFaceDataset(Dataset):
         if file_name is not None:
             plt.figure()
 
-        ax = plt.hist(data, bins=maximum)
-        plt.xticks(range(0, maximum + 1, 8))
+        if maximum > 3:
+            bins = int(maximum / 3)
+        else:
+            bins = maximum
+        ax = plt.hist(data, bins=bins)
+
+        if labels is None:
+            plt.xticks(range(0, maximum + 1, 4))
+        else:
+            plt.xticks([0.3, 1, 1.7], ["0", "1", "2"])
         plt.title(title)
 
         if labels is not None:
@@ -212,7 +221,7 @@ class OpenFaceDataset(Dataset):
             for rect, label in zip(rects, labels):
                 height = rect.get_height()
                 plt.text(rect.get_x() + rect.get_width() / 2, height + 0.01, label,
-                         ha='center', va='bottom')
+                         ha="center", va="bottom")
 
         if file_name is not None:
             plt.savefig(file_name + ".jpg", dpi=300)
@@ -259,7 +268,7 @@ if __name__ == "__main__":
     print()
     train_set1 = OpenFaceDataset.load_dataset(working_dir=working_dir1, dataset_name="training_set")
     train_set1.compute_statistics()
-    train_set1.store_dataset()
+    #train_set1.store_dataset()
 
     # Load training set
     print()
