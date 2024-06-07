@@ -72,15 +72,15 @@ class OptunaParamFinder:
 if __name__ == "__main__":
     # Define variables
     working_dir1 = "./../../"
-    model_name1 = "stimulus_conv2d_optuna"
+    model_name1 = "stimulus_conv2d_optuna11"
     net_type1 = NetType.CONV2D
     task_type1 = TaskType.STIM
-    epochs1 = 200
+    epochs1 = 1
     batch_size1 = None
     val_epochs1 = 10
 
     # Define Optuna model
-    n_trials1 = 10
+    n_trials1 = 1
     optuna1 = OptunaParamFinder(model_name=model_name1, working_dir=working_dir1, task_type=task_type1,
                                 net_type=net_type1, epochs=epochs1, batch_size=batch_size1,
                                 val_epochs=val_epochs1, n_trials=n_trials1)
