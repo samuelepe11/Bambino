@@ -1,6 +1,7 @@
 # Import packages
 import optuna
 import numpy as np
+import torch
 
 from TrainUtils.NetworkTrainer import NetworkTrainer
 from Types.TaskType import TaskType
@@ -11,7 +12,8 @@ from DataUtils.OpenFaceDataset import OpenFaceDataset
 # Class
 class OptunaParamFinder:
 
-    def __init__(self, model_name, working_dir, task_type, net_type, epochs, batch_size, val_epochs, n_trials):
+    def __init__(self, model_name, working_dir, task_type, net_type, epochs, batch_size, val_epochs, n_trials,
+                 separated_inputs=True):
         self.model_name = model_name
         self.working_dir = working_dir
         self.task_type = task_type
@@ -19,6 +21,7 @@ class OptunaParamFinder:
         self.epochs = epochs
         self.batch_size = batch_size
         self.val_epochs = val_epochs
+        self.separated_inputs = separated_inputs
 
         self.counter = 0
         self.study = optuna.create_study(direction="maximize", sampler=optuna.samplers.TPESampler(),
@@ -48,9 +51,14 @@ class OptunaParamFinder:
         print("-------------------------------------------------------------------------------------------------------")
         print("Parameters:", params)
         self.counter += 1
-        trainer = NetworkTrainer(model_name=self.model_name, working_dir=self.working_dir, task_type=self.task_type,
-                                 net_type=self.net_type, epochs=self.epochs, val_epochs=self.val_epochs, params=params)
-        val_f1 = trainer.train(show_epochs=False, trial_n=self.counter, trial=trial)
+        try:
+            trainer = NetworkTrainer(model_name=self.model_name, working_dir=self.working_dir, task_type=self.task_type,
+                                     net_type=self.net_type, epochs=self.epochs, val_epochs=self.val_epochs,
+                                     params=params, separated_inputs=self.separated_inputs)
+            val_f1 = trainer.train(show_epochs=False, trial_n=self.counter, trial=trial)
+        except torch.cuda.OutOfMemoryError:
+            print("CUDA ran out of memory...")
+            val_f1 = 0
         return val_f1
 
     def analyze_study(self):
@@ -75,15 +83,16 @@ if __name__ == "__main__":
     model_name1 = "stimulus_conv2d_optuna11"
     net_type1 = NetType.CONV2D
     task_type1 = TaskType.STIM
-    epochs1 = 1
+    epochs1 = 200
     batch_size1 = None
     val_epochs1 = 10
+    separated_inputs1 = False
 
     # Define Optuna model
-    n_trials1 = 1
+    n_trials1 = 50
     optuna1 = OptunaParamFinder(model_name=model_name1, working_dir=working_dir1, task_type=task_type1,
                                 net_type=net_type1, epochs=epochs1, batch_size=batch_size1,
-                                val_epochs=val_epochs1, n_trials=n_trials1)
+                                val_epochs=val_epochs1, n_trials=n_trials1, separated_inputs=separated_inputs1)
 
     # Run search
     optuna1.initialize_study()

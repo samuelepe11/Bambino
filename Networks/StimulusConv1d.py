@@ -1,6 +1,7 @@
 # Import packages
 import torch
 import torch.nn as nn
+import numpy as np
 
 from DataUtils.OpenFaceInstance import OpenFaceInstance
 
@@ -8,13 +9,14 @@ from DataUtils.OpenFaceInstance import OpenFaceInstance
 # Class
 class StimulusConv1d(nn.Module):
 
-    def __init__(self, is_2d=False, params=None, n_classes=2):
+    def __init__(self, is_2d=False, params=None, n_classes=2, separated_inputs=True):
         super(StimulusConv1d, self).__init__()
 
         # Define attributes
         self.is_2d = is_2d
         self.params = params
         self.n_classes = n_classes
+        self.separated_inputs = separated_inputs
 
         if params is None:
             self.layers = [64, 64, 64]
@@ -35,12 +37,21 @@ class StimulusConv1d(nn.Module):
             self.n_extra_fc_after_conv = params["n_extra_fc_after_conv"]
             self.n_extra_fc_final = params["n_extra_fc_final"]
 
-        self.layer_dims = {"g": [OpenFaceInstance.dim_dict["g"]] + self.layers,
-                           "h": [OpenFaceInstance.dim_dict["h"]] + self.layers,
-                           "f": [OpenFaceInstance.dim_dict["f"]] + self.layers}
+        if separated_inputs:
+            self.layer_dims = {"g": [OpenFaceInstance.dim_dict["g"]] + self.layers,
+                               "h": [OpenFaceInstance.dim_dict["h"]] + self.layers,
+                               "f": [OpenFaceInstance.dim_dict["f"]] + self.layers}
+            self.blocks = OpenFaceInstance.dim_dict.keys()
+            self.out_fc_dim = 3 * self.hidden_dim
+        else:
+            first_layer = [OpenFaceInstance.dim_dict["g"] + OpenFaceInstance.dim_dict["h"] +
+                           OpenFaceInstance.dim_dict["f"]]
+            self.layer_dims = {"a": first_layer + self.layers}
+            self.blocks = "a"
+            self.out_fc_dim = self.hidden_dim
 
         # Layers
-        for block in OpenFaceInstance.dim_dict.keys():
+        for block in self.blocks:
             for i in range(len(self.layer_dims[block]) - 1):
                 self.__dict__["conv_" + block + str(i)] = nn.Conv1d(self.layer_dims[block][i],
                                                                     self.layer_dims[block][i + 1],
@@ -55,7 +66,7 @@ class StimulusConv1d(nn.Module):
                 self.__dict__["fc_" + block + str(i + 1)] = nn.Linear(self.hidden_dim, self.hidden_dim)
                 self.__dict__["relu_" + block + str(i + 1)] = nn.ReLU()
 
-        self.fc0 = nn.Linear(3 * self.hidden_dim, out_features=self.hidden_dim)
+        self.fc0 = nn.Linear(self.out_fc_dim, out_features=self.hidden_dim)
         self.relu0 = nn.ReLU()
         for i in range(self.n_extra_fc_final):
             self.__dict__["fc" + str(i + 1)] = nn.Linear(self.hidden_dim, self.hidden_dim)
@@ -74,7 +85,10 @@ class StimulusConv1d(nn.Module):
         # Apply network
         target_activation = None
         outputs = []
-        for block in OpenFaceInstance.dim_dict.keys():
+        if not self.separated_inputs:
+            x["a"] = torch.concat([x["g"], x["h"], x["f"]], dim=2)
+
+        for block in self.blocks:
             out = x[block].permute(0, 2, 1)
             if not self.is_2d:
                 dim = 2
@@ -91,8 +105,6 @@ class StimulusConv1d(nn.Module):
 
                 out = self.__dict__["relu_" + block + str(i)](out)
                 out = self.__dict__["pool_" + block + str(i)](out)
-                # if self.is_2d:
-                #     out = self.__dict__["batch_norm_" + block + str(i)](out)
                 out = self.__dict__["drop_" + block + str(i)](out)
 
             out = torch.mean(out, dim=dim)
@@ -100,8 +112,8 @@ class StimulusConv1d(nn.Module):
                 out = self.__dict__["fc_" + block + str(i)](out)
                 out = self.__dict__["relu_" + block + str(i)](out)
             outputs.append(out)
-
         out = torch.concat(outputs, dim=1)
+
         out = self.fc0(out)
         out = self.relu0(out)
         for i in range(self.n_extra_fc_final):

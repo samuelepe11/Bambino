@@ -13,6 +13,7 @@ from torcheval.metrics.functional import multiclass_confusion_matrix
 from sklearn.metrics import roc_auc_score
 
 from DataUtils.OpenFaceDataset import OpenFaceDataset
+from DataUtils.OpenFaceInstance import OpenFaceInstance
 from Types.TaskType import TaskType
 from Types.SetType import SetType
 from TrainUtils.StatsHolder import StatsHolder
@@ -28,7 +29,7 @@ class NetworkTrainer:
     convergence_thresh = 1e-3
 
     def __init__(self, model_name, working_dir, task_type, net_type, epochs, val_epochs, params=None,
-                 use_cuda=True):
+                 use_cuda=True, separated_inputs=True):
         # Initialize attributes
         self.model_name = model_name
         self.working_dir = working_dir
@@ -54,9 +55,9 @@ class NetworkTrainer:
             # TaskType.STIM or default
             self.classes = OpenFaceDataset.trial_types
             if net_type == NetType.CONV1D:
-                self.net = StimulusConv1d(params=params)
+                self.net = StimulusConv1d(params=params, separated_inputs=separated_inputs)
             else:
-                self.net = StimulusConv2d(params=params)
+                self.net = StimulusConv2d(params=params, separated_inputs=separated_inputs)
 
         # Define training parameters
         self.epochs = epochs
@@ -423,6 +424,21 @@ class NetworkTrainer:
             network_trainer = pickle.load(file)
 
         network_trainer.use_cuda = torch.cuda.is_available() and use_cuda
+
+        # Handle previous versions of the Networks
+        if "separated_inputs" not in network_trainer.net.__dict__.keys():
+            network_trainer.net.__dict__["separated_inputs"] = True
+            network_trainer.net.__dict__["blocks"] = OpenFaceInstance.dim_dict.keys()
+
+        # Handle models created with Optuna
+        if trial_n is None and network_trainer.model_name.endswith("_optuna"):
+            old_model_name = network_trainer.model_name
+            network_trainer.model_name = old_model_name[:-7]
+            addon = OpenFaceDataset.models_fold
+            if addon in network_trainer.results_dir:
+                addon = ""
+            network_trainer.results_dir = (network_trainer.results_dir[:-(len(old_model_name) + 1)] +
+                                           addon + network_trainer.model_name + "/")
         return network_trainer
 
     @staticmethod
@@ -458,22 +474,23 @@ if __name__ == "__main__":
 
     # Define variables
     working_dir1 = "./../../"
-    model_name1 = "stimulus_conv2d1"
+    model_name1 = "stimulus_conv2d"
     net_type1 = NetType.CONV2D
     task_type1 = TaskType.STIM
-    epochs1 = 2
-    trial_n1 = 0
+    epochs1 = 200
+    trial_n1 = None
     val_epochs1 = 10
     use_cuda1 = False
+    separated_inputs1 = True
 
     # Define trainer
     params1 = {"n_conv_neurons": 1536, "n_conv_layers": 1, "kernel_size": 7, "hidden_dim": 64, "p_drop": 0.5,
                "n_extra_fc_after_conv": 1, "n_extra_fc_final": 1, "optimizer": "RMSprop", "lr": 0.008, "batch_size": 64}  # stimulus_conv1
-    params1 = {'n_conv_neurons': 512, 'n_conv_layers': 1, 'kernel_size': 3, 'hidden_dim': 64, 'p_drop': 0.2,
-               'n_extra_fc_after_conv': 0, 'n_extra_fc_final': 0, 'optimizer': 'RMSprop', 'lr': 0.01, 'batch_size': 32}  # stimulus_conv2
+    params1 = {"n_conv_neurons": 256, "n_conv_layers": 1, "kernel_size": 3, "hidden_dim": 32, "p_drop": 0.2,
+               "n_extra_fc_after_conv": 0, "n_extra_fc_final": 1, "optimizer": "RMSprop", "lr": 0.01, "batch_size": 64}  # stimulus_conv2
     trainer1 = NetworkTrainer(model_name=model_name1, working_dir=working_dir1, task_type=task_type1,
                               net_type=net_type1, epochs=epochs1, val_epochs=val_epochs1, params=params1,
-                              use_cuda=use_cuda1)
+                              use_cuda=use_cuda1, separated_inputs=separated_inputs1)
 
     # Show clinician performance
     # trainer1.show_clinician_stim_performance(set_type=SetType.TRAIN, desired_class=0)
@@ -481,7 +498,7 @@ if __name__ == "__main__":
 
     # Train model
     print()
-    trainer1.train(show_epochs=True)
+    #trainer1.train(show_epochs=True)
     
     # Evaluate model
     trainer1 = NetworkTrainer.load_model(working_dir=working_dir1, model_name=model_name1, trial_n=trial_n1,
