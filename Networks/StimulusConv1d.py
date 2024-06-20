@@ -139,10 +139,16 @@ class StimulusConv1d(nn.Module):
                 if "drop" in layer or "batch_norm" in layer:
                     self.__dict__[layer].training = training
 
-    def set_cuda(self):
-        self.cuda()
+    def set_cuda(self, cuda=True):
+        if cuda:
+            self.cuda()
+        else:
+            self.cpu()
         # Set specific layers
         for layer in self.__dict__.keys():
             if isinstance(self.__dict__[layer], nn.Module):
                 # Set cuda devise for parallelization
-                self.__dict__[layer].cuda()
+                if cuda:
+                    self.__dict__[layer].cuda()
+                else:
+                    self.__dict__[layer].cpu()

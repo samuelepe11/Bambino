@@ -33,16 +33,16 @@ class OptunaParamFinder:
 
     def objective(self, trial):
         params = {
-            "n_conv_neurons": int(trial.suggest_int("n_conv_neurons", 100, 1500, step=200)),
-            "n_conv_layers": 1,
-            "kernel_size": 3,
+            "n_conv_neurons": int(2 ** (trial.suggest_int("n_conv_neurons", 5, 10, step=1))),
+            "n_conv_layers": int(trial.suggest_int("n_conv_layers", 1, 6, step=1)),
+            "kernel_size": int(trial.suggest_int("kernel_size", 3, 7, step=2)),
             "hidden_dim": int(2 ** (trial.suggest_int("hidden_dim", 5, 8, step=1))),
-            "p_drop": np.round(trial.suggest_float("p_drop", 0, 0.2, step=0.1), 1),
-            "n_extra_fc_after_conv": 0,
+            "p_drop": np.round(trial.suggest_float("p_drop", 0, 0.4, step=0.1), 1),
+            "n_extra_fc_after_conv": int(trial.suggest_int("n_extra_fc_after_conv", 0, 3, step=1)),
             "n_extra_fc_final": int(trial.suggest_int("n_extra_fc_final", 0, 3, step=1)),
-            "optimizer": "RMSprop",
-            "lr": np.round(trial.suggest_float("lr", 0.001, 0.021, step=0.004), 3),
-            "batch_size": trial.suggest_categorical("batch_size", [32, 64])
+            "optimizer": trial.suggest_categorical("optimizer", ["RMSprop", "Adam"]),
+            "lr": np.round(10 ** (-1 * trial.suggest_int("lr", 1, 3, step=1)), 3),
+            "batch_size": trial.suggest_int("batch_size", 16, 64, step=16)
         }
 
         # Define seeds

@@ -7,6 +7,13 @@ class OpenFaceInstance:
 
     # Define class attributes
     dim_dict = {"g": 8, "h": 13, "f": 17}
+    dim_names = {"g": "Gaze direction", "h": "Head pose", "f": "Facial expression"}
+    dim_labels = {"g": ["gaze_0_x", "gaze_1_x", "gaze_angle_x", "gaze_0_y", "gaze_1_y", "gaze_angle_y", "gaze_0_z",
+                        "gaze_1_z"],
+                  "h": ["pose_Tx", "pose_Ty", "pose_Tz", "pose_Rx", "pose_Ry", "pose_Ry_smooth", "pose_Rz", "p_scale",
+                        "p_rx", "p_ry", "p_rz", "p_tx", "p_ty"],
+                  "f": ["AU01_r", "AU02_r", "AU04_r", "AU05_r", "AU06_r", "AU07_r", "AU09_r", "AU10_r", "AU12_r",
+                        "AU14_r", "AU15_r", "AU17_r", "AU20_r", "AU23_r", "AU25_r", "AU26_r", "AU45_r"]}
 
     def __init__(self, trial_data):
         trial_data = trial_data.to_numpy()

@@ -51,6 +51,8 @@ class StatsHolder:
             self.f1 = np.mean(self.f1)
             self.mcc = np.mean(self.mcc)
 
+        self.calibration_results = None
+
     @staticmethod
     def compute_ci(phat, n_vals, ci_alpha):
         z = norm.ppf(1 - ci_alpha / 2, loc=0, scale=1)

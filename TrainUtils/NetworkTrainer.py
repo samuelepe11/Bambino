@@ -11,6 +11,7 @@ import optuna
 from torch.utils.data import DataLoader
 from torcheval.metrics.functional import multiclass_confusion_matrix
 from sklearn.metrics import roc_auc_score
+from calfram.calibrationframework import select_probability, reliabilityplot, calibrationdiagnosis, classwise_calibration
 
 from DataUtils.OpenFaceDataset import OpenFaceDataset
 from DataUtils.OpenFaceInstance import OpenFaceInstance
@@ -207,7 +208,7 @@ class NetworkTrainer:
         stats = StatsHolder(loss, acc, tp, tn, fp, fn, auc, desired_class=desired_class)
         return stats
 
-    def test(self, set_type=SetType.TRAIN, show_cm=False, desired_class=None):
+    def test(self, set_type=SetType.TRAIN, show_cm=False, desired_class=None, assess_calibration=False):
         if self.use_cuda:
             self.net.set_cuda()
             self.criterion = self.criterion.cuda()
@@ -215,6 +216,7 @@ class NetworkTrainer:
         _, data_loader, dim = self.select_dataset(set_type)
 
         # Store class labels
+        y_prob = []
         y_true = []
         y_pred = []
         loss = 0
@@ -228,9 +230,11 @@ class NetworkTrainer:
                 prediction = torch.argmax(output, dim=1)
 
                 # Store values for Confusion Matrix calculation
+                y_prob.append(output)
                 y_true.append(y.to(self.device))
                 y_pred.append(prediction)
 
+            y_prob = torch.concat(y_prob)
             y_true = torch.concat(y_true)
             y_pred = torch.concat(y_pred)
             loss /= dim
@@ -247,7 +251,27 @@ class NetworkTrainer:
         self.__dict__[cm_name] = NetworkTrainer.compute_multiclass_confusion_matrix(y_true, y_pred, self.classes,
                                                                                     img_path)
 
+        if assess_calibration:
+            stats_holder.calibration_results = self.assess_calibration(y_true, y_prob, y_pred, set_type)
+
         return stats_holder
+
+    def assess_calibration(self, y_true, y_prob, y_pred, set_type):
+        y_true = y_true.cpu().numpy()
+        y_prob = y_prob.cpu().numpy()
+        y_pred = y_pred.cpu().numpy()
+        class_scores = select_probability(y_true, y_prob, y_pred)
+
+        # Draw reliability plot
+        reliabilityplot(class_scores, strategy=10, split=False)
+        plt.savefig(self.results_dir + set_type.value + "_calibration.png")
+
+        # Compute local metrics
+        results, _ = calibrationdiagnosis(class_scores, strategy=10)
+
+        # Compute global metrics
+        results_cw = classwise_calibration(results)
+        return results_cw
 
     def save_model(self, trial_n=None):
         if trial_n is None:
@@ -262,31 +286,43 @@ class NetworkTrainer:
                                                                                  4)))
 
     def summarize_performance(self, show_test=False, show_process=False, show_cm=False, desired_class=None,
-                              trial_n=None):
+                              trial_n=None, assess_calibration=False):
         # Show final losses
-        train_stats = self.test(set_type=SetType.TRAIN, show_cm=show_cm, desired_class=desired_class)
+        train_stats = self.test(set_type=SetType.TRAIN, show_cm=show_cm, desired_class=desired_class,
+                                assess_calibration=assess_calibration)
         print("Training loss = " + str(np.round(train_stats.loss, 5)) + " - Training accuracy = " +
               str(np.round(train_stats.acc * 100, 7)) + "% - Training F1-score = " +
               str(np.round(train_stats.f1 * 100, 7)))
         if desired_class is not None:
             NetworkTrainer.show_performance_table(train_stats, "training")
+        if assess_calibration:
+            NetworkTrainer.show_calibration_table(train_stats, "training")
 
-        val_stats = self.test(set_type=SetType.VAL, show_cm=show_cm, desired_class=desired_class)
+        print()
+        val_stats = self.test(set_type=SetType.VAL, show_cm=show_cm, desired_class=desired_class,
+                              assess_calibration=assess_calibration)
         print("Validation loss = " + str(np.round(val_stats.loss, 5)) + " - Validation accuracy = " +
               str(np.round(val_stats.acc * 100, 7)) + "% - Validation F1-score = " +
               str(np.round(val_stats.f1 * 100, 7)))
         if desired_class is not None:
             NetworkTrainer.show_performance_table(val_stats, "validation")
+        if assess_calibration:
+            NetworkTrainer.show_calibration_table(val_stats, "training")
 
         if show_test:
-            test_stats = self.test(set_type=SetType.TEST, show_cm=show_cm, desired_class=desired_class)
+            print()
+            test_stats = self.test(set_type=SetType.TEST, show_cm=show_cm, desired_class=desired_class,
+                                   assess_calibration=assess_calibration)
             print("Test loss = " + str(np.round(test_stats.loss, 5)) + " - Test accuracy = " +
                   str(np.round(test_stats.acc * 100, 7)) + "% - Test F1-score = " +
                   str(np.round(test_stats.f1 * 100, 7)))
             if desired_class is not None:
                 NetworkTrainer.show_performance_table(test_stats, "test")
+            if assess_calibration:
+                NetworkTrainer.show_calibration_table(test_stats, "training")
 
         if show_process or trial_n is not None:
+            plt.figure()
             plt.plot(self.train_losses, "b", label="Training set")
             plt.plot(self.val_eval_epochs, self.val_losses, "g", label="Validation set")
             plt.legend()
@@ -337,6 +373,15 @@ class NetworkTrainer:
               "% - Clinician F1-score = " + str(np.round(data.clinician_stats.f1 * 100, 7)) + "%")
         if desired_class is not None:
             NetworkTrainer.show_performance_table(data.clinician_stats, set_type.value)
+
+    def show_model(self):
+        print("MODEL:")
+
+        attributes = self.net.__dict__
+        for attr in attributes.keys():
+            val = attributes[attr]
+            if issubclass(type(val), nn.Module):
+                print(" > " + attr, "-" * (20 - len(attr)), val)
 
     @staticmethod
     def compute_binary_confusion_matrix(y_true, y_predicted, classes=None):
@@ -462,9 +507,15 @@ class NetworkTrainer:
 
     @staticmethod
     def show_performance_table(stats, set_name):
-        print("Performance for", set_name.upper() + ":")
+        print("Performance for", set_name.upper() + " set:")
         for stat in StatsHolder.table_stats:
             print(" - " + stat + ": " + str(np.round(stats.__dict__["target_" + stat] * 100, 2)) + "%")
+
+    @staticmethod
+    def show_calibration_table(stats, set_name):
+        print("Calibration information for", set_name.upper() + " set:")
+        for stat in stats.calibration_results.keys():
+            print(" - " + stat + ": " + str(stats.calibration_results[stat]))
 
 
 # Main
@@ -474,7 +525,7 @@ if __name__ == "__main__":
 
     # Define variables
     working_dir1 = "./../../"
-    model_name1 = "stimulus_conv2d"
+    model_name1 = "stimulus_conv1d"
     net_type1 = NetType.CONV2D
     task_type1 = TaskType.STIM
     epochs1 = 200
@@ -482,6 +533,7 @@ if __name__ == "__main__":
     val_epochs1 = 10
     use_cuda1 = False
     separated_inputs1 = True
+    assess_calibration1 = True
 
     # Define trainer
     params1 = {"n_conv_neurons": 1536, "n_conv_layers": 1, "kernel_size": 7, "hidden_dim": 64, "p_drop": 0.5,
@@ -498,12 +550,13 @@ if __name__ == "__main__":
 
     # Train model
     print()
-    #trainer1.train(show_epochs=True)
+    # trainer1.train(show_epochs=True)
     
     # Evaluate model
     trainer1 = NetworkTrainer.load_model(working_dir=working_dir1, model_name=model_name1, trial_n=trial_n1,
                                          use_cuda=use_cuda1)
-    trainer1.summarize_performance(show_test=False, show_process=True, desired_class=0, show_cm=True)
+    trainer1.summarize_performance(show_test=False, show_process=True, desired_class=0, show_cm=True,
+                                   assess_calibration=assess_calibration1)
 
     # Retrain model
     # trainer1.train(show_epochs=True)

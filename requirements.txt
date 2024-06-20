@@ -30,6 +30,7 @@ msgpack==1.0.8
 networkx==3.3
 numba==0.59.1
 numpy==1.26.4
+opencv-python==4.10.0.84
 optuna==3.6.1
 packaging==24.0
 pandas==2.2.2

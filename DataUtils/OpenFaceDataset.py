@@ -16,15 +16,17 @@ from Types.TaskType import TaskType
 # Class
 class OpenFaceDataset(Dataset):
     # Define class attributes
-    data_fold = "data/"
-    preliminary_fold = "preliminary_analysis/"
-    results_fold = "results/"
-    models_fold = "models/"
-
     trial_types = ["control", "stimulus"]
     age_groups = ["7-11", "12-18", "19-24"]
     trial_id_groups = ["0-30th percentiles", "30-70th percentiles", "70-100th percentiles"]
     fc = 25
+
+    # Define folders
+    data_fold = "data/"
+    preliminary_fold = "preliminary_analysis/"
+    results_fold = "results/"
+    models_fold = "models/"
+    jai_fold = "JAI/"
 
     def __init__(self, dataset_name, working_dir, file_name, data_instances=None):
         self.working_dir = working_dir
@@ -186,6 +188,19 @@ class OpenFaceDataset(Dataset):
         with open(file_path, "wb") as file:
             pickle.dump(self, file)
         print("The dataset '" + self.dataset_name + "' have been stored!")
+
+    def get_item(self, pt_id, trial_id):
+        idx = None
+        for i in range(len(self.instances)):
+            instance = self.instances[i]
+            if instance.pt_id == pt_id and instance.trial_id == trial_id:
+                idx = i
+        if idx is None:
+            print("Trial " + trial_id + " of patient " + pt_id + " not found!")
+            return None
+        else:
+            x, y = self.__getitem__(idx)
+            return x, y
 
     @staticmethod
     def draw_pie_plot(data, labels, title, file_name):
