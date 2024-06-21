@@ -82,7 +82,8 @@ class JAISystem:
         net = trainer.net
         net.set_training(False)
         net.set_cuda(False)
-        x = {block: x[block].unsqueeze(0) for block in x.keys()}
+        x = {key: x[key].unsqueeze(0) for key in x.keys()}
+        x = {key: (x[key] - trainer.train_mean[key]) / trainer.train_std[key] for key in x.keys()}
 
         cams = {}
         for block in x.keys():
@@ -183,10 +184,10 @@ if __name__ == "__main__":
     system1 = JAISystem(working_dir=working_dir1, model_name=model_name1)
 
     # Explain one item
-    data_descr1 = {"pt": "bam2_001", "trial": 3}
+    data_descr1 = {"pt": "bam2_004", "trial": 9}
     target_layer_id1 = "0"
     target_class1 = 1
-    explainer_type1 = ExplainerType.GC
+    explainer_type1 = ExplainerType.HRC
     show1 = False
     system1.get_cam(data_descr=data_descr1, target_layer_id=target_layer_id1, target_class=target_class1,
                     explainer_type=explainer_type1, show=show1)

@@ -34,15 +34,15 @@ class OptunaParamFinder:
     def objective(self, trial):
         params = {
             "n_conv_neurons": int(2 ** (trial.suggest_int("n_conv_neurons", 5, 10, step=1))),
-            "n_conv_layers": int(trial.suggest_int("n_conv_layers", 1, 6, step=1)),
-            "kernel_size": int(trial.suggest_int("kernel_size", 3, 7, step=2)),
+            "n_conv_layers": int(trial.suggest_int("n_conv_layers", 1, 3, step=1)),
+            "kernel_size": 3,
             "hidden_dim": int(2 ** (trial.suggest_int("hidden_dim", 5, 8, step=1))),
-            "p_drop": np.round(trial.suggest_float("p_drop", 0, 0.4, step=0.1), 1),
+            "p_drop": np.round(trial.suggest_float("p_drop", 0, 0.4, step=0.2), 1),
             "n_extra_fc_after_conv": int(trial.suggest_int("n_extra_fc_after_conv", 0, 3, step=1)),
             "n_extra_fc_final": int(trial.suggest_int("n_extra_fc_final", 0, 3, step=1)),
             "optimizer": trial.suggest_categorical("optimizer", ["RMSprop", "Adam"]),
             "lr": np.round(10 ** (-1 * trial.suggest_int("lr", 1, 3, step=1)), 3),
-            "batch_size": trial.suggest_int("batch_size", 16, 64, step=16)
+            "batch_size": trial.suggest_int("batch_size", 32, 64, step=32)
         }
 
         # Define seeds
@@ -80,13 +80,13 @@ class OptunaParamFinder:
 if __name__ == "__main__":
     # Define variables
     working_dir1 = "./../../"
-    model_name1 = "stimulus_conv2d_optuna11"
+    model_name1 = "age_conv2d_optuna"
     net_type1 = NetType.CONV2D
-    task_type1 = TaskType.STIM
+    task_type1 = TaskType.AGE
     epochs1 = 200
     batch_size1 = None
     val_epochs1 = 10
-    separated_inputs1 = False
+    separated_inputs1 = True
 
     # Define Optuna model
     n_trials1 = 50

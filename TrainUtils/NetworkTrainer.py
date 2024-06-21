@@ -11,6 +11,7 @@ import optuna
 from torch.utils.data import DataLoader
 from torcheval.metrics.functional import multiclass_confusion_matrix
 from sklearn.metrics import roc_auc_score
+from pandas import DataFrame
 from calfram.calibrationframework import select_probability, reliabilityplot, calibrationdiagnosis, classwise_calibration
 
 from DataUtils.OpenFaceDataset import OpenFaceDataset
@@ -48,17 +49,17 @@ class NetworkTrainer:
         self.descr_test = None
         if task_type == TaskType.AGE:
             self.classes = OpenFaceDataset.age_groups
-            self.net = StimulusConv2d(params=params, n_classes=len(self.classes))
         elif task_type == TaskType.TRIAL:
             self.classes = OpenFaceDataset.trial_id_groups
-            self.net = StimulusConv2d(params=params, n_classes=len(self.classes))
         else:
-            # TaskType.STIM or default
+            # TaskType.STIM
             self.classes = OpenFaceDataset.trial_types
-            if net_type == NetType.CONV1D:
-                self.net = StimulusConv1d(params=params, separated_inputs=separated_inputs)
-            else:
-                self.net = StimulusConv2d(params=params, separated_inputs=separated_inputs)
+
+        if net_type == NetType.CONV1D:
+            self.net = StimulusConv1d(params=params, separated_inputs=separated_inputs, n_classes=len(self.classes))
+        else:
+            # NetType.CONV2D
+            self.net = StimulusConv2d(params=params, separated_inputs=separated_inputs, n_classes=len(self.classes))
 
         # Define training parameters
         self.epochs = epochs
@@ -261,6 +262,12 @@ class NetworkTrainer:
         y_prob = y_prob.cpu().numpy()
         y_pred = y_pred.cpu().numpy()
         class_scores = select_probability(y_true, y_prob, y_pred)
+
+        # Store results file
+        data = np.concatenate((y_true[:, np.newaxis], y_pred[:, np.newaxis], y_prob), axis=1)
+        titles = ["y_true", "y_pred"] + ["y_prob" + str(i) for i in range(y_prob.shape[1])]
+        df = DataFrame(data, columns=titles)
+        df.to_csv(self.results_dir + set_type.value + "_classification_results.csv", index=False)
 
         # Draw reliability plot
         reliabilityplot(class_scores, strategy=10, split=False)
@@ -473,7 +480,7 @@ class NetworkTrainer:
         # Handle previous versions of the Networks
         if "separated_inputs" not in network_trainer.net.__dict__.keys():
             network_trainer.net.__dict__["separated_inputs"] = True
-            network_trainer.net.__dict__["blocks"] = OpenFaceInstance.dim_dict.keys()
+            network_trainer.net.__dict__["blocks"] = list(OpenFaceInstance.dim_dict.keys())
 
         # Handle models created with Optuna
         if trial_n is None and network_trainer.model_name.endswith("_optuna"):
@@ -525,21 +532,23 @@ if __name__ == "__main__":
 
     # Define variables
     working_dir1 = "./../../"
-    model_name1 = "stimulus_conv1d"
+    model_name1 = "trial_conv2d"
     net_type1 = NetType.CONV2D
-    task_type1 = TaskType.STIM
-    epochs1 = 200
+    task_type1 = TaskType.TRIAL
+    epochs1 = 100
     trial_n1 = None
     val_epochs1 = 10
-    use_cuda1 = False
+    use_cuda1 = True
     separated_inputs1 = True
-    assess_calibration1 = True
+    assess_calibration1 = False
 
     # Define trainer
-    params1 = {"n_conv_neurons": 1536, "n_conv_layers": 1, "kernel_size": 7, "hidden_dim": 64, "p_drop": 0.5,
-               "n_extra_fc_after_conv": 1, "n_extra_fc_final": 1, "optimizer": "RMSprop", "lr": 0.008, "batch_size": 64}  # stimulus_conv1
-    params1 = {"n_conv_neurons": 256, "n_conv_layers": 1, "kernel_size": 3, "hidden_dim": 32, "p_drop": 0.2,
-               "n_extra_fc_after_conv": 0, "n_extra_fc_final": 1, "optimizer": "RMSprop", "lr": 0.01, "batch_size": 64}  # stimulus_conv2
+    # params1 = {"n_conv_neurons": 1536, "n_conv_layers": 1, "kernel_size": 7, "hidden_dim": 64, "p_drop": 0.5,
+    #            "n_extra_fc_after_conv": 1, "n_extra_fc_final": 1, "optimizer": "RMSprop", "lr": 0.008, "batch_size": 64}  # stimulus_conv1
+    # params1 = {"n_conv_neurons": 256, "n_conv_layers": 1, "kernel_size": 3, "hidden_dim": 32, "p_drop": 0.2,
+    #            "n_extra_fc_after_conv": 0, "n_extra_fc_final": 1, "optimizer": "RMSprop", "lr": 0.01, "batch_size": 64}  # stimulus_conv2
+    params1 = {"n_conv_neurons": 64, "n_conv_layers": 3, "kernel_size": 3, "hidden_dim": 32, "p_drop": 0.1,
+               "n_extra_fc_after_conv": 1, "n_extra_fc_final": 1, "optimizer": "RMSprop", "lr": 0.01, "batch_size": 64}  # age_conv1
     trainer1 = NetworkTrainer(model_name=model_name1, working_dir=working_dir1, task_type=task_type1,
                               net_type=net_type1, epochs=epochs1, val_epochs=val_epochs1, params=params1,
                               use_cuda=use_cuda1, separated_inputs=separated_inputs1)
@@ -550,11 +559,11 @@ if __name__ == "__main__":
 
     # Train model
     print()
-    # trainer1.train(show_epochs=True)
+    trainer1.train(show_epochs=True)
     
     # Evaluate model
-    trainer1 = NetworkTrainer.load_model(working_dir=working_dir1, model_name=model_name1, trial_n=trial_n1,
-                                         use_cuda=use_cuda1)
+    # trainer1 = NetworkTrainer.load_model(working_dir=working_dir1, model_name=model_name1, trial_n=trial_n1,
+    #                                      use_cuda=use_cuda1)
     trainer1.summarize_performance(show_test=False, show_process=True, desired_class=0, show_cm=True,
                                    assess_calibration=assess_calibration1)
 

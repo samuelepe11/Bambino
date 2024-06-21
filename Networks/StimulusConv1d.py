@@ -41,13 +41,13 @@ class StimulusConv1d(nn.Module):
             self.layer_dims = {"g": [OpenFaceInstance.dim_dict["g"]] + self.layers,
                                "h": [OpenFaceInstance.dim_dict["h"]] + self.layers,
                                "f": [OpenFaceInstance.dim_dict["f"]] + self.layers}
-            self.blocks = OpenFaceInstance.dim_dict.keys()
+            self.blocks = list(OpenFaceInstance.dim_dict.keys())
             self.out_fc_dim = 3 * self.hidden_dim
         else:
             first_layer = [OpenFaceInstance.dim_dict["g"] + OpenFaceInstance.dim_dict["h"] +
                            OpenFaceInstance.dim_dict["f"]]
             self.layer_dims = {"a": first_layer + self.layers}
-            self.blocks = "a"
+            self.blocks = ["a"]
             self.out_fc_dim = self.hidden_dim
 
         # Layers

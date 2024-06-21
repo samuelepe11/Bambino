@@ -283,7 +283,7 @@ if __name__ == "__main__":
     print()
     train_set1 = OpenFaceDataset.load_dataset(working_dir=working_dir1, dataset_name="training_set")
     train_set1.compute_statistics()
-    #train_set1.store_dataset()
+    # train_set1.store_dataset()
 
     # Load training set
     print()

@@ -301,7 +301,7 @@ def select_probability(y_actual, y_prob, y_pred):
 def reliabilityplot(classes_scores,strategy = 'doane',split = True, undersampling=False):
     marker_list =  ['o', 'v', '^', '<', '>', '1', '2', '3', '4', 's']
     conta = 0
-    plt.figure(figsize=(10,10))
+    plt.figure(figsize=(5,5))
     for i in classes_scores.keys():
         mark = marker_list[conta]
         conta += 1
