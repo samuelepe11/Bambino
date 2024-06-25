@@ -12,8 +12,8 @@ class OpenFaceInstance:
                         "gaze_1_z"],
                   "h": ["pose_Tx", "pose_Ty", "pose_Tz", "pose_Rx", "pose_Ry", "pose_Ry_smooth", "pose_Rz", "p_scale",
                         "p_rx", "p_ry", "p_rz", "p_tx", "p_ty"],
-                  "f": ["AU01_r", "AU02_r", "AU04_r", "AU05_r", "AU06_r", "AU07_r", "AU09_r", "AU10_r", "AU12_r",
-                        "AU14_r", "AU15_r", "AU17_r", "AU20_r", "AU23_r", "AU25_r", "AU26_r", "AU45_r"]}
+                  "f": ["au01", "au02", "au04", "au05", "au06", "au07", "au09", "au10", "au12", "au14", "au15", "au17",
+                        "au20", "au23", "au25", "au26", "au45"]}
 
     def __init__(self, trial_data):
         trial_data = trial_data.to_numpy()

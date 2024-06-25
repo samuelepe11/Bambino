@@ -79,21 +79,30 @@ class OpenFaceDataset(Dataset):
         x = {"g": torch.Tensor(instance.gaze_info),
              "h": torch.Tensor(instance.head_info),
              "f": torch.Tensor(instance.face_info)}
+        y = OpenFaceDataset.preprocess_label(instance.trial_type)
 
-        if self.task_type is TaskType.AGE:
-            y = OpenFaceInstance.categorize_age(instance.age)
-        elif self.task_type is TaskType.TRIAL:
-            y = OpenFaceInstance.categorize_trial_id(instance.trial_id, self.trial_id_stats)
-        else:
-            # TaskType.STIM or None
-            y = instance.trial_type
-        y = torch.Tensor([y])
-        y = y.to(torch.long)
-
-        return x, y
+        age = OpenFaceInstance.categorize_age(instance.age)
+        age = OpenFaceDataset.preprocess_label(age)
+        trial_id = OpenFaceInstance.categorize_trial_id(instance.trial_id, self.trial_id_stats)
+        trial_id = OpenFaceDataset.preprocess_label(trial_id)
+        return x, y, [age, trial_id]
 
     def __len__(self):
         return self.len
+
+    def get_extra_info(self, x):
+        ages = []
+        trial_ids = []
+        for i in range(x["g"].shape[0]):
+            gi = x["g"][i, :, :]
+            hi = x["h"][i, :, :]
+            fi = x["f"][i, :, :]
+            for instance in self.instances:
+                if instance.gaze_info == gi and instance.head_info == hi and instance.face_info == fi:
+                    ages.append(OpenFaceInstance.categorize_age(instance.age))
+                    trial_ids.append(OpenFaceInstance.categorize_trial_id(instance.trial_id, self.trial_id_stats))
+
+        return torch.Tensor(ages), torch.Tensor(trial_ids)
 
     def split_dataset(self, train_perc):
         # Get training set
@@ -199,8 +208,13 @@ class OpenFaceDataset(Dataset):
             print("Trial " + trial_id + " of patient " + pt_id + " not found!")
             return None
         else:
-            x, y = self.__getitem__(idx)
+            x, y, _ = self.__getitem__(idx)
             return x, y
+
+    @staticmethod
+    def preprocess_label(y):
+        y = torch.Tensor([y])
+        return y.to(torch.long)
 
     @staticmethod
     def draw_pie_plot(data, labels, title, file_name):

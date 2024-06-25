@@ -14,6 +14,9 @@ from Types.ExplainerType import ExplainerType
 
 # Class
 class JAISystem:
+    # Define class attributes
+    time_steps = list(range(0, 350, 50))
+
     def __init__(self, working_dir, model_name):
         # Initialize attributes
         self.working_dir = working_dir
@@ -52,18 +55,24 @@ class JAISystem:
         for block in x.keys():
             if not show:
                 map = maps[block]
-                plt.figure(figsize=(10, 10))
                 if map.shape[1] > 1:
-                    aspect = 0.05
+                    plt.figure(figsize=(50, 50))
+                    aspect = 5
                 else:
-                    aspect = 0.5
-                plt.matshow(map, aspect=aspect, cmap=plt.get_cmap("jet"))
+                    plt.figure(figsize=(50, 2))
+                    aspect = 10
+                plt.matshow(np.transpose(map), aspect=aspect, cmap=plt.get_cmap("jet"))
+                plt.colorbar()
                 plt.title(title)
-                plt.xlabel(OpenFaceInstance.dim_names[block])
+                plt.xlabel("Time (s)")
+                plt.ylabel(OpenFaceInstance.dim_names[block])
+                plt.xticks(JAISystem.time_steps, [str(int(t / OpenFaceDataset.fc)) for t in JAISystem.time_steps],
+                           fontsize=8)
                 if map.shape[1] > 1:
-                    plt.xticks(range(map.shape[1]), OpenFaceInstance.dim_labels[block], rotation=45, fontsize=8)
+                    plt.yticks(range(map.shape[1]), [s.upper() for s in OpenFaceInstance.dim_labels[block]], rotation=0,
+                               fontsize=7)
                 else:
-                    plt.xticks([], [])
+                    plt.yticks([], [])
                 item_name = data_descr["pt"] + "__trial" + str(data_descr["trial"])
                 directory = self.jai_dir + self.model_name
                 if item_name not in os.listdir(directory):
@@ -180,14 +189,15 @@ if __name__ == "__main__":
     working_dir1 = "./../../"
 
     # Define the system
-    model_name1 = "stimulus_conv2d"
+    model_name1 = "stimulus_conv1d"
     system1 = JAISystem(working_dir=working_dir1, model_name=model_name1)
 
     # Explain one item
-    data_descr1 = {"pt": "bam2_004", "trial": 9}
+    data_descr1 = {"pt": "bam2_020", "trial": 32}
     target_layer_id1 = "0"
-    target_class1 = 1
-    explainer_type1 = ExplainerType.HRC
+    target_classes = [0, 1]
+    explainer_type1 = ExplainerType.GC
     show1 = False
-    system1.get_cam(data_descr=data_descr1, target_layer_id=target_layer_id1, target_class=target_class1,
-                    explainer_type=explainer_type1, show=show1)
+    for target_class1 in target_classes:
+        system1.get_cam(data_descr=data_descr1, target_layer_id=target_layer_id1, target_class=target_class1,
+                        explainer_type=explainer_type1, show=show1)

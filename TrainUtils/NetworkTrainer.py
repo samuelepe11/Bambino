@@ -97,7 +97,16 @@ class NetworkTrainer:
                                                       train_trial_id_stats=self.train_data.trial_id_stats)
         self.test_loader, self.test_dim = self.load_data(self.test_data)
 
+        # Data statistics
         self.train_mean, self.train_std = self.get_normalization_params(self.train_data)
+
+        # Trial ID statistics
+        trials = [instance.trial_id for instance in self.train_data.instances]
+        m_trial = np.mean(trials)
+        s_trial = np.std(trials)
+        self.train_data.__dict__["trial_id_stats"] = (m_trial, s_trial)
+        self.val_data.__dict__["trial_id_stats"] = (m_trial, s_trial)
+        self.test_data.__dict__["trial_id_stats"] = (m_trial, s_trial)
 
     def load_data(self, data, shuffle=False):
         dataloader = DataLoader(dataset=data, batch_size=self.batch_size, shuffle=shuffle, num_workers=2,
@@ -110,8 +119,8 @@ class NetworkTrainer:
         if show_epochs:
             self.start_time = time.time()
 
+        self.net.set_cuda(cuda=self.use_cuda)
         if self.use_cuda:
-            self.net.set_cuda()
             self.criterion = self.criterion.cuda()
         net = self.net
 
@@ -124,7 +133,7 @@ class NetworkTrainer:
         for epoch in range(self.epochs):
             net.set_training(True)
             train_loss = 0
-            for x, y in self.train_loader:
+            for x, y, _ in self.train_loader:
                 loss, _ = self.apply_network(net, x, y)
                 train_loss += loss.item()
 
@@ -198,7 +207,20 @@ class NetworkTrainer:
 
         return data, data_loader, dim
 
-    def compute_stats(self, y_true, y_pred, loss, acc, desired_class=None):
+    def compute_stats(self, y_true, y_pred, loss, acc, desired_class=None, y_prob=None):
+        n_vals = len(y_true)
+        if loss is None:
+            if y_prob is not None:
+                loss = self.criterion(y_prob, y_true)
+                loss = loss.item()
+            else:
+                loss = None
+
+        if acc is None:
+            acc = torch.sum(y_true == y_pred) / n_vals
+            acc = acc.item()
+
+        # Get binary confusion matrix
         cm = NetworkTrainer.compute_binary_confusion_matrix(y_true, y_pred, range(len(self.classes)))
         tp = cm[0]
         tn = cm[1]
@@ -209,21 +231,25 @@ class NetworkTrainer:
         stats = StatsHolder(loss, acc, tp, tn, fp, fn, auc, desired_class=desired_class)
         return stats
 
-    def test(self, set_type=SetType.TRAIN, show_cm=False, desired_class=None, assess_calibration=False):
+    def test(self, set_type=SetType.TRAIN, show_cm=False, desired_class=None, assess_calibration=False,
+             perform_extra_analysis=False):
+        self.net.set_cuda(cuda=self.use_cuda)
         if self.use_cuda:
-            self.net.set_cuda()
             self.criterion = self.criterion.cuda()
+
         net = self.net
-        _, data_loader, dim = self.select_dataset(set_type)
+        data, data_loader, dim = self.select_dataset(set_type)
 
         # Store class labels
         y_prob = []
         y_true = []
         y_pred = []
+        ages = []
+        trial_ids = []
         loss = 0
         net.set_training(False)
         with torch.no_grad():
-            for x, y in data_loader:
+            for x, y, extra_info in data_loader:
                 temp_loss, output = self.apply_network(net, x, y)
                 loss += temp_loss.item()
 
@@ -235,9 +261,18 @@ class NetworkTrainer:
                 y_true.append(y.to(self.device))
                 y_pred.append(prediction)
 
+                # Store extra information for detailed analysis
+                if perform_extra_analysis:
+                    ages.append(extra_info[0])
+                    trial_ids.append(extra_info[1])
+
             y_prob = torch.concat(y_prob)
             y_true = torch.concat(y_true)
             y_pred = torch.concat(y_pred)
+            if perform_extra_analysis:
+                ages = torch.concat(ages)
+                trial_ids = torch.concat(trial_ids)
+
             loss /= dim
             acc = torch.sum(y_true == y_pred) / dim
             acc = acc.item()
@@ -255,7 +290,53 @@ class NetworkTrainer:
         if assess_calibration:
             stats_holder.calibration_results = self.assess_calibration(y_true, y_prob, y_pred, set_type)
 
+        if perform_extra_analysis:
+            self.perform_extra_analysis(y_true, y_prob, y_pred, ages, set_type, desired_class, "age",
+                                        checking_patterns=[(1, 0), (1, 2), (0, 2)])
+            print("---------------------------------------------------------------------------------------------------")
+            self.perform_extra_analysis(y_true, y_prob, y_pred, trial_ids, set_type, desired_class,
+                                        "trial", checking_patterns=[(0, 2), (0, 1), (1, 2)])
+            print("---------------------------------------------------------------------------------------------------")
+
         return stats_holder
+
+    def perform_extra_analysis(self, y_true, y_prob, y_pred, analyzed_var, set_type, desired_class, analysis_criterion,
+                               checking_patterns):
+        path = self.results_dir + analysis_criterion + "/"
+        if analysis_criterion not in os.listdir(self.results_dir):
+            os.mkdir(path)
+
+        stat_list = []
+        for val in np.unique(analyzed_var):
+            # Extract data
+            ind = analyzed_var == val
+            true = y_true[ind]
+            if y_prob is not None:
+                prob = y_prob[ind, :]
+            else:
+                prob = None
+            pred = y_pred[ind]
+
+            # Get bootstrap distributions
+            boot_stats = self.get_bootstrapped_metrics(true, pred, prob, desired_class=desired_class)
+            stat_list.append(boot_stats)
+
+            # Compute statistics
+            stats = self.compute_stats(true, pred, None, None, desired_class=desired_class,
+                                       y_prob=prob)
+            if desired_class is not None:
+                NetworkTrainer.show_performance_table(stats, analysis_criterion + " = " + str(val) + " in " +
+                                                      set_type.value, boot_stats=boot_stats)
+
+            # Compute multiclass confusion matrix
+            img_path = path + analysis_criterion + str(val) + "_" + set_type.value + "_cm.jpg"
+            NetworkTrainer.compute_multiclass_confusion_matrix(true, pred, self.classes, img_path)
+
+        # Compare results
+        StatsHolder.draw_compare_plots(stat_list=stat_list, extra_feature_name=analysis_criterion, set_type=set_type,
+                                       path=path)
+        StatsHolder.statistically_compare_stats(stat_list=stat_list, extra_feature_name=analysis_criterion,
+                                                set_type=set_type, path=path, checking_patterns=checking_patterns)
 
     def assess_calibration(self, y_true, y_prob, y_pred, set_type):
         y_true = y_true.cpu().numpy()
@@ -271,7 +352,10 @@ class NetworkTrainer:
 
         # Draw reliability plot
         reliabilityplot(class_scores, strategy=10, split=False)
+        plt.xlabel("Predicted probability")
+        plt.ylabel("True probability")
         plt.savefig(self.results_dir + set_type.value + "_calibration.png")
+        plt.close()
 
         # Compute local metrics
         results, _ = calibrationdiagnosis(class_scores, strategy=10)
@@ -293,10 +377,10 @@ class NetworkTrainer:
                                                                                  4)))
 
     def summarize_performance(self, show_test=False, show_process=False, show_cm=False, desired_class=None,
-                              trial_n=None, assess_calibration=False):
+                              trial_n=None, assess_calibration=False, perform_extra_analysis=False):
         # Show final losses
         train_stats = self.test(set_type=SetType.TRAIN, show_cm=show_cm, desired_class=desired_class,
-                                assess_calibration=assess_calibration)
+                                assess_calibration=assess_calibration, perform_extra_analysis=perform_extra_analysis)
         print("Training loss = " + str(np.round(train_stats.loss, 5)) + " - Training accuracy = " +
               str(np.round(train_stats.acc * 100, 7)) + "% - Training F1-score = " +
               str(np.round(train_stats.f1 * 100, 7)))
@@ -305,9 +389,9 @@ class NetworkTrainer:
         if assess_calibration:
             NetworkTrainer.show_calibration_table(train_stats, "training")
 
-        print()
+        print("\n=======================================================================================================\n")
         val_stats = self.test(set_type=SetType.VAL, show_cm=show_cm, desired_class=desired_class,
-                              assess_calibration=assess_calibration)
+                              assess_calibration=assess_calibration, perform_extra_analysis=perform_extra_analysis)
         print("Validation loss = " + str(np.round(val_stats.loss, 5)) + " - Validation accuracy = " +
               str(np.round(val_stats.acc * 100, 7)) + "% - Validation F1-score = " +
               str(np.round(val_stats.f1 * 100, 7)))
@@ -317,9 +401,9 @@ class NetworkTrainer:
             NetworkTrainer.show_calibration_table(val_stats, "training")
 
         if show_test:
-            print()
+            print("\n=======================================================================================================\n")
             test_stats = self.test(set_type=SetType.TEST, show_cm=show_cm, desired_class=desired_class,
-                                   assess_calibration=assess_calibration)
+                                   assess_calibration=assess_calibration, perform_extra_analysis=perform_extra_analysis)
             print("Test loss = " + str(np.round(test_stats.loss, 5)) + " - Test accuracy = " +
                   str(np.round(test_stats.acc * 100, 7)) + "% - Test F1-score = " +
                   str(np.round(test_stats.f1 * 100, 7)))
@@ -337,46 +421,67 @@ class NetworkTrainer:
             plt.ylabel("Loss")
             plt.xlabel("Epoch")
             if show_process:
-                plt.show()
+                plt.savefig(self.results_dir + "training_curves.jpg")
+                plt.close()
             if trial_n is not None:
                 plt.savefig(self.results_dir + "trial_" + str(trial_n - 1) + "_curves.jpg")
                 plt.close()
 
         return train_stats, val_stats
 
-    def show_clinician_stim_performance(self, set_type=SetType.TRAIN, desired_class=None):
+    def show_clinician_stim_performance(self, set_type=SetType.TRAIN, desired_class=None, perform_extra_analysis=False):
         data, _, dim = self.select_dataset(set_type)
 
-        if data.clinician_stats is not None:
-            # Get true labels and predicted values
-            y_true = []
-            y_pred = []
-            for instance in data.instances:
-                yt = torch.Tensor([instance.trial_type])
-                y_true.append(yt)
+        # Get true labels and predicted values
+        y_true = []
+        y_pred = []
+        ages = []
+        trial_ids = []
+        for instance in data.instances:
+            yt = torch.Tensor([instance.trial_type])
+            y_true.append(yt)
 
-                yp = torch.Tensor([instance.clinician_pred])
-                y_pred.append(yp)
-            y_true = torch.concat(y_true)
-            y_pred = torch.concat(y_pred)
+            yp = torch.Tensor([instance.clinician_pred])
+            y_pred.append(yp)
 
-            # Get evaluation metrics
-            acc = torch.sum(y_true == y_pred) / dim
-            acc = acc.item()
-            data.clinician_stats = self.compute_stats(y_true, y_pred, None, acc, desired_class=desired_class)
+            if perform_extra_analysis:
+                age = OpenFaceInstance.categorize_age(instance.age)
+                ages.append(torch.Tensor([age]).to(torch.long))
+                trial_id = OpenFaceInstance.categorize_trial_id(instance.trial_id, data.trial_id_stats)
+                trial_ids.append(torch.Tensor([trial_id]).to(torch.long))
+        y_true = torch.concat(y_true)
+        y_pred = torch.concat(y_pred)
+        if perform_extra_analysis:
+            ages = torch.concat(ages)
+            trial_ids = torch.concat(trial_ids)
 
-            # Compute multiclass confusion matrix
-            y_true = y_true.to(torch.int64)
-            y_pred = y_pred.to(torch.int64)
-            img_path = (self.working_dir + OpenFaceDataset.results_fold + "clinician_performance/" + set_type.value
-                        + "_cm.jpg")
-            data.clinician_cm = NetworkTrainer.compute_multiclass_confusion_matrix(y_true, y_pred,
-                                                                                   OpenFaceDataset.trial_types,
-                                                                                   img_path)
-            data.store_dataset()
+        # Get evaluation metrics
+        acc = torch.sum(y_true == y_pred) / dim
+        acc = acc.item()
+        data.clinician_stats = self.compute_stats(y_true, y_pred, None, acc, desired_class=desired_class)
+
+        # Compute multiclass confusion matrix
+        y_true = y_true.to(torch.int64)
+        y_pred = y_pred.to(torch.int64)
+        img_path = (self.working_dir + OpenFaceDataset.results_fold + OpenFaceDataset.models_fold +
+                    "clinician_performance/" + set_type.value
+                    + "_cm.jpg")
+        data.clinician_cm = NetworkTrainer.compute_multiclass_confusion_matrix(y_true, y_pred,
+                                                                               OpenFaceDataset.trial_types,
+                                                                               img_path)
+
+        if perform_extra_analysis:
+            self.perform_extra_analysis(y_true, None, y_pred, ages, set_type, desired_class,
+                                        "age", checking_patterns=[(1, 0), (1, 2), (0, 2)])
+            print(
+                "---------------------------------------------------------------------------------------------------")
+            self.perform_extra_analysis(y_true, None, y_pred, trial_ids, set_type, desired_class,
+                                        "trial", checking_patterns=[(0, 2), (0, 1), (1, 2)])
+            print(
+                "---------------------------------------------------------------------------------------------------")
 
         # Show performance
-        print(set_type.value + ": Clinician accuracy = " + str(np.round(data.clinician_stats.acc * 100, 7)) +
+        print(set_type.value.upper() + ": Clinician accuracy = " + str(np.round(data.clinician_stats.acc * 100, 7)) +
               "% - Clinician F1-score = " + str(np.round(data.clinician_stats.f1 * 100, 7)) + "%")
         if desired_class is not None:
             NetworkTrainer.show_performance_table(data.clinician_stats, set_type.value)
@@ -389,6 +494,23 @@ class NetworkTrainer:
             val = attributes[attr]
             if issubclass(type(val), nn.Module):
                 print(" > " + attr, "-" * (20 - len(attr)), val)
+
+    def get_bootstrapped_metrics(self, y_true, y_pred, y_prob, desired_class=None, n_rep=100, boot_dim=70):
+        boot_stats = []
+        n_elem = len(y_true)
+        n_samples = int(n_elem * boot_dim / 100)
+        for _ in range(n_rep):
+            boot_ind = np.random.choice(range(n_elem), size=n_samples, replace=True)
+            y_true_boot = y_true[boot_ind]
+            y_pred_boot = y_pred[boot_ind]
+            if y_prob is not None:
+                y_prob_boot = y_prob[boot_ind, :]
+            else:
+                y_prob_boot = None
+            boot_stats.append(self.compute_stats(y_true_boot, y_pred_boot, None, None,
+                                                 desired_class=desired_class, y_prob=y_prob_boot))
+
+        return StatsHolder.average_bootstrap_values(stat_list=boot_stats)
 
     @staticmethod
     def compute_binary_confusion_matrix(y_true, y_predicted, classes=None):
@@ -424,7 +546,10 @@ class NetworkTrainer:
         for c in classes:
             y_true_i = (y_true == c).to(int)
             y_predicted_i = (y_predicted == c).to(int)
-            out_i = roc_auc_score(y_true_i, y_predicted_i)
+            try:
+                out_i = roc_auc_score(y_true_i, y_predicted_i)
+            except ValueError:
+                out_i = 0.5
             out.append(out_i)
 
         out = np.asarray(out)
@@ -437,19 +562,19 @@ class NetworkTrainer:
 
         # Draw heatmap
         if img_path is not None:
-            NetworkTrainer.draw_multiclass_confusion_matrix(cm, classes, img_path)
+            NetworkTrainer.draw_multiclass_confusion_matrix(cm, ["no stimulus", "stimulus"], img_path)
 
         return cm
 
     @staticmethod
     def draw_multiclass_confusion_matrix(cm, labels, img_path):
-        plt.figure(figsize=(4, 4))
+        plt.figure(figsize=(2, 2))
         cm = cm.cpu()
         plt.imshow(cm, cmap="Reds")
         for i in range(cm.shape[0]):
             for j in range(cm.shape[1]):
                 val = cm[i, j]
-                plt.text(j, i, f"{val.item()}", ha="center", va="center", color="black")
+                plt.text(j, i, f"{val.item()}", ha="center", va="center", color="black", fontsize="xx-large")
         plt.xticks(range(len(labels)), labels, rotation=45)
         plt.xlabel("Predicted class")
         plt.yticks(range(len(labels)), labels, rotation=45)
@@ -459,10 +584,14 @@ class NetworkTrainer:
 
     @staticmethod
     def custom_collate_fn(batch):
-        batch_inputs = {key: torch.stack([d[key] for d, _ in batch]) for key in batch[0][0]}
-        batch_labels = torch.stack([label for _, label in batch])
+        batch_inputs = {key: torch.stack([d[key] for d, _, _ in batch]) for key in batch[0][0]}
+        batch_labels = torch.stack([label for _, label, _ in batch])
         batch_labels = batch_labels.squeeze(1)
-        return batch_inputs, batch_labels
+        batch_age = torch.stack([extra[0] for _, _, extra in batch])
+        batch_age = batch_age.squeeze(1)
+        batch_trial = torch.stack([extra[1] for _, _, extra in batch])
+        batch_trial = batch_trial.squeeze(1)
+        return batch_inputs, batch_labels, [batch_age, batch_trial]
 
     @staticmethod
     def load_model(working_dir, model_name, trial_n=None, use_cuda=True):
@@ -476,11 +605,21 @@ class NetworkTrainer:
             network_trainer = pickle.load(file)
 
         network_trainer.use_cuda = torch.cuda.is_available() and use_cuda
+        network_trainer.device = torch.device("cuda" if network_trainer.use_cuda else "cpu")
 
-        # Handle previous versions of the Networks
+        # Handle previous versions of the network attributes
         if "separated_inputs" not in network_trainer.net.__dict__.keys():
             network_trainer.net.__dict__["separated_inputs"] = True
             network_trainer.net.__dict__["blocks"] = list(OpenFaceInstance.dim_dict.keys())
+
+        # Handle previous versions of the dataset attributes
+        if "train_id_stats" not in network_trainer.train_data.__dict__.keys():
+            trials = [instance.trial_id for instance in network_trainer.train_data.instances]
+            m_trial = np.mean(trials)
+            s_trial = np.std(trials)
+            network_trainer.train_data.__dict__["trial_id_stats"] = (m_trial, s_trial)
+            network_trainer.val_data.__dict__["trial_id_stats"] = (m_trial, s_trial)
+            network_trainer.test_data.__dict__["trial_id_stats"] = (m_trial, s_trial)
 
         # Handle models created with Optuna
         if trial_n is None and network_trainer.model_name.endswith("_optuna"):
@@ -497,7 +636,7 @@ class NetworkTrainer:
     def get_normalization_params(data):
         loader = DataLoader(dataset=data, batch_size=data.len, shuffle=False, num_workers=0,
                             collate_fn=NetworkTrainer.custom_collate_fn)
-        for x, y in loader:
+        for x, _, _ in loader:
             mean = {key: torch.mean(x[key], dim=(0, 1)) for key in x.keys()}
             std = {key: torch.std(x[key], dim=(0, 1)) for key in x.keys()}
         return mean, std
@@ -513,10 +652,35 @@ class NetworkTrainer:
         torch.backends.cudnn.benchmark = False
 
     @staticmethod
-    def show_performance_table(stats, set_name):
+    def show_performance_table(stats, set_name, boot_stats=None):
         print("Performance for", set_name.upper() + " set:")
+
+        for stat in ["acc", "loss"]:
+            name = StatsHolder.comparable_stats[stat] if stat in StatsHolder.comparable_stats else stat.upper()
+            try:
+                if boot_stats is None:
+                    addon = ""
+                else:
+                    addon = " (std: " + str(np.round(boot_stats.__dict__[stat + "_s"] * 100, 2)) + "%)"
+                print(" - " + name + ": " + str(np.round(stats.__dict__[stat] * 100, 2)) + "%" + addon)
+            except:
+                print(" - " + stat + ": missing information")
+
         for stat in StatsHolder.table_stats:
-            print(" - " + stat + ": " + str(np.round(stats.__dict__["target_" + stat] * 100, 2)) + "%")
+            if boot_stats is None:
+                addon = ""
+            else:
+                if stat != "mcc":
+                    s = str(np.round(boot_stats.__dict__[stat + "_s"] * 100, 2)) + "%)"
+                else:
+                    s = str(np.round(boot_stats.__dict__[stat + "_s"], 2)) + ")"
+                addon = " (std: " + s
+
+            if stat != "mcc":
+                s = str(np.round(stats.__dict__["target_" + stat] * 100, 2)) + "%"
+            else:
+                s = str(np.round(stats.__dict__["target_" + stat], 2))
+            print(" - " + StatsHolder.comparable_stats[stat] + ": " + s + addon)
 
     @staticmethod
     def show_calibration_table(stats, set_name):
@@ -532,40 +696,48 @@ if __name__ == "__main__":
 
     # Define variables
     working_dir1 = "./../../"
-    model_name1 = "trial_conv2d"
-    net_type1 = NetType.CONV2D
-    task_type1 = TaskType.TRIAL
-    epochs1 = 100
+    model_name1 = "stimulus_conv1d"
+    net_type1 = NetType.CONV1D
+    task_type1 = TaskType.STIM
+    epochs1 = 200
     trial_n1 = None
     val_epochs1 = 10
-    use_cuda1 = True
+    use_cuda1 = False
     separated_inputs1 = True
-    assess_calibration1 = False
+    assess_calibration1 = True
+    perform_extra_analysis1 = True
+    desired_class1 = 1
+    show_test1 = True
 
     # Define trainer
     # params1 = {"n_conv_neurons": 1536, "n_conv_layers": 1, "kernel_size": 7, "hidden_dim": 64, "p_drop": 0.5,
     #            "n_extra_fc_after_conv": 1, "n_extra_fc_final": 1, "optimizer": "RMSprop", "lr": 0.008, "batch_size": 64}  # stimulus_conv1
-    # params1 = {"n_conv_neurons": 256, "n_conv_layers": 1, "kernel_size": 3, "hidden_dim": 32, "p_drop": 0.2,
-    #            "n_extra_fc_after_conv": 0, "n_extra_fc_final": 1, "optimizer": "RMSprop", "lr": 0.01, "batch_size": 64}  # stimulus_conv2
-    params1 = {"n_conv_neurons": 64, "n_conv_layers": 3, "kernel_size": 3, "hidden_dim": 32, "p_drop": 0.1,
-               "n_extra_fc_after_conv": 1, "n_extra_fc_final": 1, "optimizer": "RMSprop", "lr": 0.01, "batch_size": 64}  # age_conv1
+    params1 = {"n_conv_neurons": 256, "n_conv_layers": 1, "kernel_size": 3, "hidden_dim": 32, "p_drop": 0.2,
+               "n_extra_fc_after_conv": 0, "n_extra_fc_final": 1, "optimizer": "RMSprop", "lr": 0.01, "batch_size": 64}  # stimulus_conv2
     trainer1 = NetworkTrainer(model_name=model_name1, working_dir=working_dir1, task_type=task_type1,
                               net_type=net_type1, epochs=epochs1, val_epochs=val_epochs1, params=params1,
                               use_cuda=use_cuda1, separated_inputs=separated_inputs1)
 
     # Show clinician performance
-    # trainer1.show_clinician_stim_performance(set_type=SetType.TRAIN, desired_class=0)
-    # trainer1.show_clinician_stim_performance(set_type=SetType.VAL, desired_class=0)
-
+    '''trainer1.show_clinician_stim_performance(set_type=SetType.TRAIN, desired_class=desired_class1,
+                                             perform_extra_analysis=perform_extra_analysis1)
+    print("\n=======================================================================================================\n")
+    trainer1.show_clinician_stim_performance(set_type=SetType.VAL, desired_class=desired_class1,
+                                             perform_extra_analysis=perform_extra_analysis1)
+    print("\n=======================================================================================================\n")
+    trainer1.show_clinician_stim_performance(set_type=SetType.TEST, desired_class=desired_class1,
+                                             perform_extra_analysis=perform_extra_analysis1)'''
     # Train model
     print()
-    trainer1.train(show_epochs=True)
+    print()
+    # trainer1.train(show_epochs=True)
     
     # Evaluate model
-    # trainer1 = NetworkTrainer.load_model(working_dir=working_dir1, model_name=model_name1, trial_n=trial_n1,
-    #                                      use_cuda=use_cuda1)
-    trainer1.summarize_performance(show_test=False, show_process=True, desired_class=0, show_cm=True,
-                                   assess_calibration=assess_calibration1)
+    trainer1 = NetworkTrainer.load_model(working_dir=working_dir1, model_name=model_name1, trial_n=trial_n1,
+                                         use_cuda=use_cuda1)
+    trainer1.summarize_performance(show_test=show_test1, show_process=True, desired_class=desired_class1, show_cm=True,
+                                   assess_calibration=assess_calibration1,
+                                   perform_extra_analysis=perform_extra_analysis1)
 
     # Retrain model
     # trainer1.train(show_epochs=True)
