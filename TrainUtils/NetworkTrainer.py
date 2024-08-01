@@ -13,6 +13,7 @@ from torcheval.metrics.functional import multiclass_confusion_matrix
 from sklearn.metrics import roc_auc_score
 from pandas import DataFrame
 from calfram.calibrationframework import select_probability, reliabilityplot, calibrationdiagnosis, classwise_calibration
+from collections import Counter
 
 from DataUtils.OpenFaceDataset import OpenFaceDataset
 from DataUtils.OpenFaceInstance import OpenFaceInstance
@@ -246,6 +247,7 @@ class NetworkTrainer:
         y_pred = []
         ages = []
         trial_ids = []
+        trial_ids_no_categorical = []
         loss = 0
         net.set_training(False)
         with torch.no_grad():
@@ -265,6 +267,7 @@ class NetworkTrainer:
                 if perform_extra_analysis:
                     ages.append(extra_info[0])
                     trial_ids.append(extra_info[1])
+                    trial_ids_no_categorical.append(extra_info[2])
 
             y_prob = torch.concat(y_prob)
             y_true = torch.concat(y_true)
@@ -272,6 +275,7 @@ class NetworkTrainer:
             if perform_extra_analysis:
                 ages = torch.concat(ages)
                 trial_ids = torch.concat(trial_ids)
+                trial_ids_no_categorical = torch.concat(trial_ids_no_categorical)
 
             loss /= dim
             acc = torch.sum(y_true == y_pred) / dim
@@ -297,13 +301,38 @@ class NetworkTrainer:
             self.perform_extra_analysis(y_true, y_prob, y_pred, trial_ids, set_type, desired_class,
                                         "trial", checking_patterns=[(0, 2), (0, 1), (1, 2)])
             print("---------------------------------------------------------------------------------------------------")
+            for age in np.unique(ages):
+                ind = ages == age
+                y_true_i = y_true[ind]
+                y_prob_i = y_prob[ind, :]
+                y_pred_i = y_pred[ind]
+                trial_ids_i = trial_ids[ind]
+                self.perform_extra_analysis(y_true_i, y_prob_i, y_pred_i, trial_ids_i, set_type, desired_class,
+                                            "age = " + str(age) + " - trial", checking_patterns=[(0, 2), (0, 1), (1, 2)])
+            print("---------------------------------------------------------------------------------------------------")
+            for trial in np.unique(trial_ids):
+                ind = trial_ids == trial
+                y_true_i = y_true[ind]
+                y_prob_i = y_prob[ind, :]
+                y_pred_i = y_pred[ind]
+                ages_i = ages[ind]
+                self.perform_extra_analysis(y_true_i, y_prob_i, y_pred_i, ages_i, set_type, desired_class,
+                                            "trial = " + str(trial) + " - age", checking_patterns=[(1, 0), (1, 2), (0, 2)])
+            print("---------------------------------------------------------------------------------------------------")
+            for desired_stat in ["acc", "f1"]:
+                self.perform_extra_analysis(y_true, y_prob, y_pred, trial_ids_no_categorical, set_type, desired_class,
+                                            "trial no categorical", checking_patterns=None,
+                                            desired_stats=[desired_stat])
+            print("---------------------------------------------------------------------------------------------------")
 
         return stats_holder
 
     def perform_extra_analysis(self, y_true, y_prob, y_pred, analyzed_var, set_type, desired_class, analysis_criterion,
-                               checking_patterns):
-        path = self.results_dir + analysis_criterion + "/"
-        if analysis_criterion not in os.listdir(self.results_dir):
+                               checking_patterns, desired_stats=None):
+        analysis_criterion_short = analysis_criterion.replace("=", "")
+        analysis_criterion_short = analysis_criterion_short.replace(" ", "")
+        path = self.results_dir + analysis_criterion_short + "/"
+        if analysis_criterion_short not in os.listdir(self.results_dir):
             os.mkdir(path)
 
         stat_list = []
@@ -324,19 +353,20 @@ class NetworkTrainer:
             # Compute statistics
             stats = self.compute_stats(true, pred, None, None, desired_class=desired_class,
                                        y_prob=prob)
-            if desired_class is not None:
+            if desired_class is not None and checking_patterns is not None:
                 NetworkTrainer.show_performance_table(stats, analysis_criterion + " = " + str(val) + " in " +
                                                       set_type.value, boot_stats=boot_stats)
 
             # Compute multiclass confusion matrix
-            img_path = path + analysis_criterion + str(val) + "_" + set_type.value + "_cm.jpg"
+            img_path = path + analysis_criterion_short + str(val) + "_" + set_type.value + "_cm.jpg"
             NetworkTrainer.compute_multiclass_confusion_matrix(true, pred, self.classes, img_path)
 
         # Compare results
         StatsHolder.draw_compare_plots(stat_list=stat_list, extra_feature_name=analysis_criterion, set_type=set_type,
-                                       path=path)
-        StatsHolder.statistically_compare_stats(stat_list=stat_list, extra_feature_name=analysis_criterion,
-                                                set_type=set_type, path=path, checking_patterns=checking_patterns)
+                                       path=path, desired_stats=desired_stats)
+        if checking_patterns is not None:
+            StatsHolder.statistically_compare_stats(stat_list=stat_list, extra_feature_name=analysis_criterion,
+                                                    set_type=set_type, path=path, checking_patterns=checking_patterns)
 
     def assess_calibration(self, y_true, y_prob, y_pred, set_type):
         y_true = y_true.cpu().numpy()
@@ -398,7 +428,7 @@ class NetworkTrainer:
         if desired_class is not None:
             NetworkTrainer.show_performance_table(val_stats, "validation")
         if assess_calibration:
-            NetworkTrainer.show_calibration_table(val_stats, "training")
+            NetworkTrainer.show_calibration_table(val_stats, "validation")
 
         if show_test:
             print("\n=======================================================================================================\n")
@@ -410,7 +440,7 @@ class NetworkTrainer:
             if desired_class is not None:
                 NetworkTrainer.show_performance_table(test_stats, "test")
             if assess_calibration:
-                NetworkTrainer.show_calibration_table(test_stats, "training")
+                NetworkTrainer.show_calibration_table(test_stats, "test")
 
         if show_process or trial_n is not None:
             plt.figure()
@@ -437,6 +467,7 @@ class NetworkTrainer:
         y_pred = []
         ages = []
         trial_ids = []
+        trial_ids_no_categorical = []
         for instance in data.instances:
             yt = torch.Tensor([instance.trial_type])
             y_true.append(yt)
@@ -447,6 +478,7 @@ class NetworkTrainer:
             if perform_extra_analysis:
                 age = OpenFaceInstance.categorize_age(instance.age)
                 ages.append(torch.Tensor([age]).to(torch.long))
+                trial_ids_no_categorical.append(torch.Tensor([instance.trial_id]).to(torch.long))
                 trial_id = OpenFaceInstance.categorize_trial_id(instance.trial_id, data.trial_id_stats)
                 trial_ids.append(torch.Tensor([trial_id]).to(torch.long))
         y_true = torch.concat(y_true)
@@ -454,6 +486,7 @@ class NetworkTrainer:
         if perform_extra_analysis:
             ages = torch.concat(ages)
             trial_ids = torch.concat(trial_ids)
+            trial_ids_no_categorical = torch.concat(trial_ids_no_categorical)
 
         # Get evaluation metrics
         acc = torch.sum(y_true == y_pred) / dim
@@ -479,6 +512,28 @@ class NetworkTrainer:
                                         "trial", checking_patterns=[(0, 2), (0, 1), (1, 2)])
             print(
                 "---------------------------------------------------------------------------------------------------")
+            for age in np.unique(ages):
+                ind = ages == age
+                y_true_i = y_true[ind]
+                y_pred_i = y_pred[ind]
+                trial_ids_i = trial_ids[ind]
+                self.perform_extra_analysis(y_true_i, None, y_pred_i, trial_ids_i, set_type, desired_class,
+                                            "age = " + str(age) + " - trial",
+                                            checking_patterns=[(0, 2), (0, 1), (1, 2)])
+            print("---------------------------------------------------------------------------------------------------")
+            for trial in np.unique(trial_ids):
+                ind = trial_ids == trial
+                y_true_i = y_true[ind]
+                y_pred_i = y_pred[ind]
+                ages_i = ages[ind]
+                self.perform_extra_analysis(y_true_i, None, y_pred_i, ages_i, set_type, desired_class,
+                                            "trial = " + str(trial) + " - age", checking_patterns=[(1, 0), (1, 2), (0, 2)])
+            print("---------------------------------------------------------------------------------------------------")
+            for desired_stat in ["acc", "f1"]:
+                self.perform_extra_analysis(y_true, None, y_pred, trial_ids_no_categorical, set_type,
+                                            desired_class, "trial no categorical", checking_patterns=None,
+                                            desired_stats=[desired_stat])
+            print("---------------------------------------------------------------------------------------------------")
 
         # Show performance
         print(set_type.value.upper() + ": Clinician accuracy = " + str(np.round(data.clinician_stats.acc * 100, 7)) +
@@ -591,7 +646,9 @@ class NetworkTrainer:
         batch_age = batch_age.squeeze(1)
         batch_trial = torch.stack([extra[1] for _, _, extra in batch])
         batch_trial = batch_trial.squeeze(1)
-        return batch_inputs, batch_labels, [batch_age, batch_trial]
+        batch_trial_no_categorical = torch.stack([extra[2] for _, _, extra in batch])
+        batch_trial_no_categorical = batch_trial_no_categorical.squeeze(1)
+        return batch_inputs, batch_labels, [batch_age, batch_trial, batch_trial_no_categorical]
 
     @staticmethod
     def load_model(working_dir, model_name, trial_n=None, use_cuda=True):
@@ -696,7 +753,8 @@ if __name__ == "__main__":
 
     # Define variables
     working_dir1 = "./../../"
-    model_name1 = "stimulus_conv1d"
+    model_name1 = "clinician_performance"
+    # model_name1 = "stimulus_conv1d"
     net_type1 = NetType.CONV1D
     task_type1 = TaskType.STIM
     epochs1 = 200
@@ -719,25 +777,25 @@ if __name__ == "__main__":
                               use_cuda=use_cuda1, separated_inputs=separated_inputs1)
 
     # Show clinician performance
-    '''trainer1.show_clinician_stim_performance(set_type=SetType.TRAIN, desired_class=desired_class1,
+    trainer1.show_clinician_stim_performance(set_type=SetType.TRAIN, desired_class=desired_class1,
                                              perform_extra_analysis=perform_extra_analysis1)
     print("\n=======================================================================================================\n")
     trainer1.show_clinician_stim_performance(set_type=SetType.VAL, desired_class=desired_class1,
                                              perform_extra_analysis=perform_extra_analysis1)
     print("\n=======================================================================================================\n")
     trainer1.show_clinician_stim_performance(set_type=SetType.TEST, desired_class=desired_class1,
-                                             perform_extra_analysis=perform_extra_analysis1)'''
+                                             perform_extra_analysis=perform_extra_analysis1)
     # Train model
     print()
     print()
     # trainer1.train(show_epochs=True)
     
     # Evaluate model
-    trainer1 = NetworkTrainer.load_model(working_dir=working_dir1, model_name=model_name1, trial_n=trial_n1,
+    '''trainer1 = NetworkTrainer.load_model(working_dir=working_dir1, model_name=model_name1, trial_n=trial_n1,
                                          use_cuda=use_cuda1)
     trainer1.summarize_performance(show_test=show_test1, show_process=True, desired_class=desired_class1, show_cm=True,
                                    assess_calibration=assess_calibration1,
-                                   perform_extra_analysis=perform_extra_analysis1)
+                                   perform_extra_analysis=perform_extra_analysis1)'''
 
     # Retrain model
     # trainer1.train(show_epochs=True)

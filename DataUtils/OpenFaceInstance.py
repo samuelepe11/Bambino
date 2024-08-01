@@ -12,8 +12,11 @@ class OpenFaceInstance:
                         "gaze_1_z"],
                   "h": ["pose_Tx", "pose_Ty", "pose_Tz", "pose_Rx", "pose_Ry", "pose_Ry_smooth", "pose_Rz", "p_scale",
                         "p_rx", "p_ry", "p_rz", "p_tx", "p_ty"],
-                  "f": ["au01", "au02", "au04", "au05", "au06", "au07", "au09", "au10", "au12", "au14", "au15", "au17",
-                        "au20", "au23", "au25", "au26", "au45"]}
+                  "f": ["Inner Brow Raiser", "Outer Brow Raiser", "Brow Lowerer", "Upper Lid Raiser", "Cheek Raiser",
+                    "Lid Tightener", "Nose Wrinkler", "Upper Lip Raiser", "Lip Corner Puller", "Dimpler",
+                    "Lip Corner Depressor", "Chin Raiser", "Lip stretcher", "Lip Tightener", "Lips part", "Jaw Drop",
+                    "Blink"]}
+    subplot_settings = {"g": [15, 10, 2, 4], "h": [15, 10, 3, 5], "f": [15, 10, 4, 5]}
 
     def __init__(self, trial_data):
         trial_data = trial_data.to_numpy()

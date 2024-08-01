@@ -8,6 +8,7 @@ import pickle
 import matplotlib.pyplot as plt
 import torch
 from torch.utils.data import Dataset
+from collections import Counter
 
 from DataUtils.OpenFaceInstance import OpenFaceInstance
 from Types.TaskType import TaskType
@@ -19,6 +20,9 @@ class OpenFaceDataset(Dataset):
     trial_types = ["control", "stimulus"]
     age_groups = ["7-11", "12-18", "19-24"]
     trial_id_groups = ["0-30th percentiles", "30-70th percentiles", "70-100th percentiles"]
+
+    time_stimulus = 2
+    max_time = 12
     fc = 25
 
     # Define folders
@@ -83,9 +87,10 @@ class OpenFaceDataset(Dataset):
 
         age = OpenFaceInstance.categorize_age(instance.age)
         age = OpenFaceDataset.preprocess_label(age)
-        trial_id = OpenFaceInstance.categorize_trial_id(instance.trial_id, self.trial_id_stats)
-        trial_id = OpenFaceDataset.preprocess_label(trial_id)
-        return x, y, [age, trial_id]
+        trial_id_categorical = OpenFaceInstance.categorize_trial_id(instance.trial_id, self.trial_id_stats)
+        trial_id_categorical = OpenFaceDataset.preprocess_label(trial_id_categorical)
+        trial_id = OpenFaceDataset.preprocess_label(instance.trial_id)
+        return x, y, [age, trial_id_categorical, trial_id]
 
     def __len__(self):
         return self.len
@@ -144,7 +149,7 @@ class OpenFaceDataset(Dataset):
         OpenFaceDataset.draw_pie_plot([n_control, n_stimulus], self.trial_types, "Trial types",
                                       self.preliminary_dir + "trial_types")
 
-        # Count age
+        # Count age (at patient level)
         ages = []
         ages_categorical = []
         for pt_id in self.ids:
@@ -173,6 +178,27 @@ class OpenFaceDataset(Dataset):
         trials_categorical = [OpenFaceInstance.categorize_trial_id(trial, trial_id_stats) for trial in trials]
         OpenFaceDataset.draw_hist(trials_categorical, 3, "Trial distribution (categorical)",
                                   self.preliminary_dir + "trial_categ_distr", self.trial_id_groups)
+
+        # Count instances by both age and number of trials
+        ages_categorical_all = [OpenFaceInstance.categorize_age(instance.age) for instance in self.instances]
+        pairs = list(zip(ages_categorical_all, trials_categorical))
+        pair_counts = Counter(pairs)
+        cm = np.zeros((3, 3), dtype=int)
+        for k, v in pair_counts.items():
+            cm[k[0], k[1]] = int(v)
+        plt.figure(figsize=(8, 4))
+        plt.imshow(cm, cmap="Reds")
+        for i in range(cm.shape[0]):
+            for j in range(cm.shape[1]):
+                val = cm[i, j]
+                plt.text(j, i, f"{val.item()}", ha="center", va="center", color="black", fontsize="xx-large")
+        plt.title("Age (categorical) vs. Trial ID (categorical)")
+        plt.xticks(list(range(3)), OpenFaceDataset.trial_id_groups, rotation=10)
+        plt.xlabel("Trial ID")
+        plt.yticks(list(range(3)), OpenFaceDataset.age_groups)
+        plt.ylabel("Age")
+        plt.savefig(self.preliminary_dir + "age_vs_trial.jpg", dpi=300, bbox_inches="tight")
+        plt.close()
 
         # Count sequence duration
         durations = [instance.face_info.shape[0] / OpenFaceDataset.fc for instance in self.instances]

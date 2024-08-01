@@ -143,7 +143,12 @@ class StatsHolder:
         # Transform data into DataFrames
         dfs = []
         value_vars = [StatsHolder.comparable_stats[s] for s in desired_stats]
-        extra_var = extra_feature_name.upper() + " CODE"
+        if "-" not in extra_feature_name:
+            extra_var = extra_feature_name.upper()
+        else:
+            extra_var = extra_feature_name.split(" - ")
+            extra_var = extra_var[-1].upper()
+        extra_var += " CODE"
         for i in range(len(stat_list)):
             stats = stat_list[i]
             d = dict((StatsHolder.comparable_stats[k], stats.__dict__[k]) for k in desired_stats)
@@ -152,6 +157,12 @@ class StatsHolder:
             df[extra_var] = i
             dfs.append(df)
         df = pd.concat(dfs)
+        if 2 not in np.unique(df[extra_var]):
+            df1 = df.copy()
+            df1 = df1[df1[extra_var] == 0]
+            df1.loc[:, "Value"] = 0.
+            df1.loc[:, extra_var] = 2
+            df = pd.concat([df, df1])
 
         # Rename variables
         if not all_stats:
@@ -161,13 +172,22 @@ class StatsHolder:
 
         # Draw bar plot
         plt.figure(figsize=fig_size)
-        ax = sns.barplot(x="Metric type", y="Value", data=df, hue=extra_var, width=0.5,
-                         errorbar=("ci", 100 * (1 - alpha_ci)), err_kws={"linewidth": 1.5}, capsize=0.3,
-                         palette=sns.color_palette("dark:#5A9_r", as_cmap=True))
+        if desired_stats is not None and len(desired_stats) == 1:
+            ax = sns.barplot(x=extra_var, y="Value", data=df.dropna(), width=1,
+                             errorbar=("ci", 100 * (1 - alpha_ci)), err_kws={"linewidth": 1}, capsize=0.2)
+            plt.xticks(range(0, np.max(df[extra_var]), 5))
+        else:
+            ax = sns.barplot(x="Metric type", y="Value", data=df, hue=extra_var, width=0.5,
+                             errorbar=("ci", 100 * (1 - alpha_ci)), err_kws={"linewidth": 1.5}, capsize=0.3,
+                             palette=sns.color_palette("dark:#5A9_r", as_cmap=True))
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
         plt.ylim([0, 1])
-        plt.title("Statistics on the " + set_type.value.upper() + " set")
+        if desired_stats is not None and len(desired_stats) == 1:
+            init = StatsHolder.comparable_stats[desired_stats[0]]
+        else:
+            init = "Statistics"
+        plt.title(init + " on the " + set_type.value.upper() + " set")
         plt.ylabel("Metric value with 95% CI")
 
         if all_stats:
@@ -180,12 +200,16 @@ class StatsHolder:
 
         # Draw boxplot
         plt.figure(figsize=fig_size)
-        ax = sns.boxplot(x="Metric type", y="Value", data=df, hue=extra_var,
-                         palette=sns.color_palette("dark:#5A9_r", as_cmap=True))
+        if desired_stats is not None and len(desired_stats) == 1:
+            ax = sns.boxplot(x=extra_var, y="Value", data=df.dropna())
+            plt.xticks(range(0, np.max(df[extra_var]), 5))
+        else:
+            ax = sns.boxplot(x="Metric type", y="Value", data=df, hue=extra_var,
+                             palette=sns.color_palette("dark:#5A9_r", as_cmap=True))
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
-        plt.ylim([-0.05, 1.25])
-        plt.title("Statistics on the " + set_type.value.upper() + " set")
+        plt.ylim([-0.05, 1.05])
+        plt.title(init + " on the " + set_type.value.upper() + " set")
         plt.ylabel("Metric value")
 
         plt.savefig(title_start + set_type.value + "_compare_boxplot.jpg", dpi=300)
@@ -193,12 +217,16 @@ class StatsHolder:
 
         # Draw violin plot
         plt.figure(figsize=fig_size)
-        ax = sns.violinplot(x="Metric type", y="Value", data=df, hue=extra_var,
-                            palette=sns.color_palette("dark:#5A9_r", as_cmap=True))
+        if desired_stats is not None and len(desired_stats) == 1:
+            ax = sns.violinplot(x=extra_var, y="Value", data=df.dropna())
+            plt.xticks(range(0, np.max(df[extra_var]), 5))
+        else:
+            ax = sns.violinplot(x="Metric type", y="Value", data=df, hue=extra_var,
+                                palette=sns.color_palette("dark:#5A9_r", as_cmap=True))
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
-        plt.ylim([-0.05, 1.25])
-        plt.title("Statistics on the " + set_type.value.upper() + " set")
+        plt.ylim([-0.05, 1.05])
+        plt.title(init + " on the " + set_type.value.upper() + " set")
         plt.ylabel("Metric value")
 
         plt.savefig(title_start + set_type.value + "_compare_violinplot.jpg", dpi=300)
@@ -233,10 +261,21 @@ class StatsHolder:
             plt.close()
 
             for ind1, ind2 in checking_patterns:
-                val1 = vals[ind1]
-                val2 = vals[ind2]
-                normality1 = normality[ind1]
-                normality2 = normality[ind2]
+                flag = False
+                try:
+                    val1 = vals[ind1]
+                    normality1 = normality[ind1]
+                except IndexError:
+                    flag = True
+                    normality1 = False
+                try:
+                    val2 = vals[ind2]
+                    normality2 = normality[ind2]
+                except IndexError:
+                    val2 = np.zeros_like(val1)
+                    normality2 = False
+                if flag:
+                    val1 = vals[ind1]
 
                 # Compare variances
                 same_var = StatsHolder.compare_variance(stat_name + " (" + extra_feature_name + " = " + str(ind1) +

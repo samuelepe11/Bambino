@@ -3,6 +3,7 @@ import os
 import numpy as np
 import cv2
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 import torch
 import torch.nn as nn
 
@@ -10,12 +11,13 @@ from DataUtils.OpenFaceDataset import OpenFaceDataset
 from DataUtils.OpenFaceInstance import OpenFaceInstance
 from TrainUtils.NetworkTrainer import NetworkTrainer
 from Types.ExplainerType import ExplainerType
+from Types.SetType import SetType
 
 
 # Class
 class JAISystem:
     # Define class attributes
-    time_steps = list(range(0, 350, 50))
+    time_steps = list(range(0, OpenFaceDataset.max_time * OpenFaceDataset.fc + 50, 50))
 
     def __init__(self, working_dir, model_name):
         # Initialize attributes
@@ -31,10 +33,16 @@ class JAISystem:
         self.trainer = NetworkTrainer.load_model(working_dir=working_dir, model_name=model_name)
         self.trainer.show_model()
 
-    def get_cam(self, data_descr, target_layer_id, target_class, explainer_type, show=False):
-        x, y = self.get_item(data_descr)
+    def get_cam(self, data_descr, target_layer_id, target_class, explainer_type, show=False, show_graphs=False,
+                x=None, y=None):
+        if data_descr is not None:
+            x, y = self.get_item(data_descr)
         cams, output_prob = self.draw_cam(self.trainer, x, target_layer_id, target_class, explainer_type)
-        self.display_output(data_descr, target_layer_id, target_class, x, y, explainer_type, cams, output_prob, show)
+        if data_descr is not None:
+            self.display_output(data_descr, target_layer_id, target_class, x, y, explainer_type, cams, output_prob,
+                                show, show_graphs)
+        else:
+            return cams
 
     def get_item(self, data_descr):
         pt_id = data_descr["pt"]
@@ -49,10 +57,16 @@ class JAISystem:
         return x, y
 
     def display_output(self, data_descr, target_layer_id, target_class, x, y, explainer_type, maps, output_prob,
-                       show=False):
-        title = ("CAM for class " + str(target_class) + " (" + str(np.round(output_prob * 100, 2)) +
-                 "%) - true label: " + str(int(y)))
-        for block in x.keys():
+                       show=False, show_graphs=False, averaged_folder=None):
+        if averaged_folder is None:
+            title = ("CAM for class " + str(target_class) + " (" + str(np.round(output_prob * 100, 2)) +
+                     "%) - true label: " + str(int(y)))
+        elif data_descr is not None:
+            title = "Averaged CAM for patient " + data_descr + " (class " + str(target_class) + ")"
+        else:
+            title = "Averaged CAM for class " + str(target_class)
+
+        for block in maps.keys():
             if not show:
                 map = maps[block]
                 if map.shape[1] > 1:
@@ -61,8 +75,22 @@ class JAISystem:
                 else:
                     plt.figure(figsize=(50, 2))
                     aspect = 10
-                plt.matshow(np.transpose(map), aspect=aspect, cmap=plt.get_cmap("jet"))
+                if len(np.unique(map)) == 1 and np.unique(map) == 0:
+                    norm = mcolors.Normalize(vmin=0, vmax=255)
+                else:
+                    norm = None
+                plt.matshow(np.transpose(map), aspect=aspect, cmap=plt.get_cmap("jet"), norm=norm)
+
+                # Add colorbar
                 plt.colorbar()
+
+                # Highlight stimulus time
+                plt.axvline(x=OpenFaceDataset.time_stimulus * OpenFaceDataset.fc, color="black", linestyle="--",
+                            linewidth=2)
+                plt.text(x=OpenFaceDataset.time_stimulus * OpenFaceDataset.fc, y=map.shape[1], s="possible stimulus",
+                         color="black", ha="center", va="top")
+
+                # Adjust axes
                 plt.title(title)
                 plt.xlabel("Time (s)")
                 plt.ylabel(OpenFaceInstance.dim_names[block])
@@ -73,18 +101,109 @@ class JAISystem:
                                fontsize=7)
                 else:
                     plt.yticks([], [])
-                item_name = data_descr["pt"] + "__trial" + str(data_descr["trial"])
+                if averaged_folder is None:
+                    item_name = data_descr["pt"] + "__trial" + str(data_descr["trial"])
+                else:
+                    item_name = averaged_folder
                 directory = self.jai_dir + self.model_name
-                if item_name not in os.listdir(directory):
+                if averaged_folder is None and item_name not in os.listdir(directory):
                     os.mkdir(directory + "/" + item_name)
                 target_layer = "__conv_" + block + target_layer_id
-                plt.savefig(directory + "/" + item_name + "/" + explainer_type.value + target_layer + "__" +
-                            str(target_class) + ".png", format="png", bbox_inches="tight",
-                            pad_inches=0, dpi=300)
+                path = directory + "/" + item_name + "/" + explainer_type.value + target_layer + "__" + str(target_class)
+                plt.savefig(path + ".png", format="png", bbox_inches="tight", pad_inches=0, dpi=300)
                 plt.close()
+
+                if show_graphs and averaged_folder is None:
+                    name_start = directory + "/" + item_name + "/" + explainer_type.value + "/"
+                    if explainer_type.value not in os.listdir(directory + "/" + item_name):
+                        os.mkdir(name_start)
+                    name_start += "conv_" + block + target_layer_id + "__" + str(target_class)
+                    JAISystem.show_graphs(item=x, block=block, map=map, name_start=name_start)
             else:
                 # Project a proper function
                 print("Functionality not available...")
+
+    def average_explanations(self, set_type, explainer_type, target_layer_id):
+        if set_type == SetType.TRAIN:
+            dataset = self.trainer.train_data
+        elif set_type == SetType.TEST:
+            dataset = self.trainer.test_data
+        else:
+            dataset = self.trainer.val_data
+
+        # Create folders for storage
+        children_folder = set_type.value + "_children_averaged"
+        if children_folder not in os.listdir(self.jai_dir + self.model_name):
+            os.mkdir(self.jai_dir + self.model_name + "/" + children_folder)
+        class_folder = set_type.value + "_class_averaged"
+        if class_folder not in os.listdir(self.jai_dir + self.model_name):
+            os.mkdir(self.jai_dir + self.model_name + "/" + class_folder)
+
+        class_cams_list = [[], []]
+        for pt_id in dataset.ids:
+            if pt_id not in os.listdir(self.jai_dir + self.model_name + "/" + children_folder):
+                os.mkdir(self.jai_dir + self.model_name + "/" + children_folder + "/" + pt_id)
+
+            for label in [0, 1]:
+                cams_list = []
+                for i, instance in enumerate(dataset.instances):
+                    if instance.pt_id == pt_id:
+                        x, y, _ = dataset.__getitem__(i)
+                        cams = system1.get_cam(data_descr=None, target_layer_id=target_layer_id, target_class=label,
+                                               explainer_type=explainer_type, show=False, show_graphs=False, x=x, y=y)
+                        cams_list.append(cams)
+                        class_cams_list[label].append(cams)
+
+                # Get child averaged maps
+                cams = {"g": np.mean([cam["g"] for cam in cams_list], axis=0),
+                        "h": np.mean([cam["h"] for cam in cams_list], axis=0),
+                        "f": np.mean([cam["f"] for cam in cams_list], axis=0)}
+                self.display_output(data_descr=pt_id, target_layer_id=target_layer_id, target_class=label, x=None,
+                                    y=None, explainer_type=explainer_type, maps=cams, output_prob=None,
+                                    show=False, show_graphs=False, averaged_folder=children_folder + "/" + pt_id)
+
+            # Get class averaged maps
+            for label in [0, 1]:
+                cams = {"g": np.mean([cam["g"] for cam in class_cams_list[label]], axis=0),
+                        "h": np.mean([cam["h"] for cam in class_cams_list[label]], axis=0),
+                        "f": np.mean([cam["f"] for cam in class_cams_list[label]], axis=0)}
+                self.display_output(data_descr=None, target_layer_id=target_layer_id, target_class=label, x=None,
+                                    y=None, explainer_type=explainer_type, maps=cams, output_prob=None, show=False,
+                                    show_graphs=False, averaged_folder=class_folder)
+
+    @staticmethod
+    def show_graphs(item, block, map, name_start):
+        # Extract signals
+        x = item[block]
+        name = OpenFaceInstance.dim_names[block]
+        labels = OpenFaceInstance.dim_labels[block]
+
+        if map.shape[1] == 1:
+            map = np.tile(map, (1, x.shape[1]))
+
+        # Draw single plots
+        settings = OpenFaceInstance.subplot_settings[block]
+        plt.figure(figsize=(settings[0], settings[1]))
+        plt.suptitle(name.upper())
+        time_steps = np.arange(OpenFaceDataset.max_time * OpenFaceDataset.fc)
+        for i in range(x.shape[1]):
+            plt.subplot(settings[2], settings[3], i + 1)
+            plt.tight_layout()
+            plt.plot(time_steps, x[:, i], color="black", linewidth=0.5)
+            norm = mcolors.Normalize(vmin=0, vmax=0.1) if len(np.unique(map[:, i])) == 1 and map[0][i] == 0 else None
+            plt.scatter(time_steps, x[:, i], c=map[:, i], cmap="jet", marker=".", s=40, norm=norm)
+            plt.colorbar()
+            plt.xticks(JAISystem.time_steps, [str(int(t / OpenFaceDataset.fc)) for t in JAISystem.time_steps],
+                       fontsize=8)
+            plt.xlabel("Time (s)")
+            plt.title(labels[i].upper())
+
+            # Highlight stimulus time
+            plt.axvline(x=OpenFaceDataset.time_stimulus * OpenFaceDataset.fc, color="black", linestyle="--",
+                        linewidth=2)
+
+        plt.savefig(name_start + ".png", format="png", bbox_inches="tight", pad_inches=0, dpi=500)
+        plt.close()
 
     @staticmethod
     def draw_cam(trainer, x, target_layer_id, target_class, explainer_type):
@@ -177,7 +296,7 @@ class JAISystem:
             else:
                 map = np.zeros(map.shape)
         else:
-            map = (map - minimum) / (maximum + minimum)
+            map = (map - minimum) / (maximum - minimum)
 
         map = np.uint8(255 * map)
         return map
@@ -192,12 +311,21 @@ if __name__ == "__main__":
     model_name1 = "stimulus_conv1d"
     system1 = JAISystem(working_dir=working_dir1, model_name=model_name1)
 
-    # Explain one item
-    data_descr1 = {"pt": "bam2_020", "trial": 32}
+    # Explain some items
+    data_descriptions = [{"pt": "bam2_004", "trial": 7}, {"pt": "bam2_004", "trial": 9},
+                         {"pt": "bam2_010", "trial": 16}, {"pt": "bam2_020", "trial": 32}]
     target_layer_id1 = "0"
     target_classes = [0, 1]
-    explainer_type1 = ExplainerType.GC
+    explainer_types = [ExplainerType.GC, ExplainerType.HRC]
     show1 = False
-    for target_class1 in target_classes:
-        system1.get_cam(data_descr=data_descr1, target_layer_id=target_layer_id1, target_class=target_class1,
-                        explainer_type=explainer_type1, show=show1)
+    show_graphs1 = True
+    '''for data_descr1 in data_descriptions:
+        for target_class1 in target_classes:
+            for explainer_type1 in explainer_types:
+                system1.get_cam(data_descr=data_descr1, target_layer_id=target_layer_id1, target_class=target_class1,
+                                explainer_type=explainer_type1, show=show1, show_graphs=show_graphs1)'''
+
+    # Average children explanations
+    set_type1 = SetType.TEST
+    explainer_type1 = ExplainerType.GC
+    system1.average_explanations(set_type=set_type1, explainer_type=explainer_type1, target_layer_id=target_layer_id1)
