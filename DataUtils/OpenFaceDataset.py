@@ -146,8 +146,10 @@ class OpenFaceDataset(Dataset):
         # Count trial types
         n_stimulus = len([instance for instance in self.instances if instance.trial_type == 1])
         n_control = self.len - n_stimulus
-        OpenFaceDataset.draw_pie_plot([n_control, n_stimulus], self.trial_types, "Trial types",
-                                      self.preliminary_dir + "trial_types")
+        OpenFaceDataset.draw_pie_bar_plot([n_control, n_stimulus], self.trial_types, "Trial types",
+                                          self.preliminary_dir + "trial_types")
+        OpenFaceDataset.draw_pie_bar_plot([n_control, n_stimulus], self.trial_types, "Trial types",
+                                          self.preliminary_dir + "trial_types", do_bar=True)
 
         # Count age (at patient level)
         ages = []
@@ -243,11 +245,15 @@ class OpenFaceDataset(Dataset):
         return y.to(torch.long)
 
     @staticmethod
-    def draw_pie_plot(data, labels, title, file_name):
+    def draw_pie_bar_plot(data, labels, title, file_name, do_bar=False):
         if file_name is not None:
             plt.figure()
 
-        plt.pie(data, labels=labels, autopct="%1.1f%%")
+        if not do_bar:
+            plt.pie(data, labels=labels, autopct="%1.1f%%")
+        else:
+            plt.bar(labels, data)
+            plt.ylabel("Absolute frequency")
         plt.title(title)
 
         if file_name is not None:
@@ -268,7 +274,8 @@ class OpenFaceDataset(Dataset):
         if labels is None:
             plt.xticks(range(0, maximum + 1, 4))
         else:
-            plt.xticks([0.3, 1, 1.7], ["0", "1", "2"])
+            plt.xticks([0.3, 1, 1.7], ["", "", ""])
+        plt.ylabel("Absolute frequency")
         plt.title(title)
 
         if labels is not None:
