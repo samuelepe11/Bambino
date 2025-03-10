@@ -317,11 +317,11 @@ class OpenFaceDataset(Dataset):
             plt.close()
 
     @staticmethod
-    def load_dataset(working_dir, dataset_name, task_type=None, train_trial_id_stats=None, is_boa=False):
+    def load_dataset(working_dir, dataset_name, task_type=None, train_trial_id_stats=None, is_boa=False, s3=None):
         data_fold = OpenFaceDataset.data_fold if not is_boa else "data/boa/"
         file_path = working_dir + data_fold + dataset_name + ".pt"
-        with open(file_path, "rb") as file:
-            dataset = pickle.load(file)
+        file = open(file_path, "rb") if s3 is None else s3.open(file_path, "rb")
+        dataset = pickle.load(file)
         dataset.task_type = task_type
 
         if train_trial_id_stats is not None:

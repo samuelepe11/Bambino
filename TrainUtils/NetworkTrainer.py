@@ -35,15 +35,21 @@ class NetworkTrainer:
     convergence_thresh = 1e-3
 
     def __init__(self, model_name, working_dir, task_type, net_type, epochs, val_epochs, params=None, use_cuda=True,
-                 separated_inputs=True, is_boa=False):
+                 separated_inputs=True, is_boa=False, train_data=None, val_data=None, test_data=None, s3=None):
         # Initialize attributes
         self.is_boa = is_boa
         self.model_name = model_name
         self.working_dir = working_dir
         self.results_dir = working_dir + self.results_fold + self.models_fold
-        if model_name not in os.listdir(self.results_dir):
-            os.mkdir(self.results_dir + model_name)
+        if s3 is None:
+            if model_name not in os.listdir(self.results_dir):
+                os.mkdir(self.results_dir + model_name)
+        else:
+            if not s3.exists(self.results_dir + model_name):
+                s3.touch(self.results_dir + model_name + "/empty.txt")
         self.results_dir += model_name + "/"
+
+        self.s3 = s3
 
         self.task_type = task_type
         self.net_type = net_type
@@ -90,19 +96,29 @@ class NetworkTrainer:
         self.device = torch.device("cuda" if self.use_cuda else "cpu")
 
         # Load datasets
-        self.train_data = OpenFaceDataset.load_dataset(working_dir=self.working_dir, dataset_name="training_set",
-                                                       task_type=self.task_type, is_boa=is_boa)
+        if train_data is None:
+            self.train_data = OpenFaceDataset.load_dataset(working_dir=self.working_dir, dataset_name="training_set",
+                                                           task_type=self.task_type, is_boa=is_boa, s3=s3)
+        else:
+            self.train_data = train_data
         self.train_loader, self.train_dim = self.load_data(self.train_data, shuffle=True)
 
-        self.val_data = OpenFaceDataset.load_dataset(working_dir=self.working_dir, dataset_name="validation_set",
-                                                     task_type=self.task_type,
-                                                     train_trial_id_stats=self.train_data.trial_id_stats, is_boa=is_boa)
+        if val_data is None:
+            self.val_data = OpenFaceDataset.load_dataset(working_dir=self.working_dir, dataset_name="validation_set",
+                                                         task_type=self.task_type,
+                                                         train_trial_id_stats=self.train_data.trial_id_stats, is_boa=is_boa, 
+                                                         s3=s3)
+        else:
+            self.val_data = val_data
         self.val_loader, self.val_dim = self.load_data(self.val_data)
 
-        self.test_data = OpenFaceDataset.load_dataset(working_dir=self.working_dir, dataset_name="test_set",
-                                                      task_type=self.task_type,
-                                                      train_trial_id_stats=self.train_data.trial_id_stats,
-                                                      is_boa=is_boa)
+        if test_data is None:
+            self.test_data = OpenFaceDataset.load_dataset(working_dir=self.working_dir, dataset_name="test_set",
+                                                          task_type=self.task_type,
+                                                          train_trial_id_stats=self.train_data.trial_id_stats,
+                                                          is_boa=is_boa, s3=s3)
+        else:
+            self.test_data = test_data
         self.test_loader, self.test_dim = self.load_data(self.test_data)
 
         # Data statistics
@@ -166,6 +182,8 @@ class NetworkTrainer:
                         filepath = self.results_dir + "training_curves.jpg"
                     else:
                         filepath = self.results_dir + "trial_" + str(trial_n) + "_curves.jpg"
+                    if self.s3 is not None:
+                        filepath = self.s3.open(filepath, "wb")
                     plt.savefig(filepath)
                     plt.close()
 
@@ -323,6 +341,8 @@ class NetworkTrainer:
         cm_name = set_type.value + "_cm"
         if show_cm:
             img_path = self.results_dir + cm_name + ".jpg"
+            if self.s3 is not None:
+                imgpath = self.s3.open(imgpath, "wb")
         else:
             img_path = None
         self.__dict__[cm_name] = NetworkTrainer.compute_multiclass_confusion_matrix(y_true, y_pred, self.classes,
@@ -418,13 +438,19 @@ class NetworkTrainer:
         data = np.concatenate((y_true[:, np.newaxis], y_pred[:, np.newaxis], y_prob), axis=1)
         titles = ["y_true", "y_pred"] + ["y_prob" + str(i) for i in range(y_prob.shape[1])]
         df = DataFrame(data, columns=titles)
-        df.to_csv(self.results_dir + set_type.value + "_classification_results.csv", index=False)
+        filepath = self.results_dir + set_type.value + "_classification_results.csv"
+        if self.s3 is not None:
+            filepath = self.s3.open(filepath, "wb")
+        df.to_csv(filepath, index=False)
 
         # Draw reliability plot
         reliabilityplot(class_scores, strategy=10, split=False)
         plt.xlabel("Predicted probability")
         plt.ylabel("True probability")
-        plt.savefig(self.results_dir + set_type.value + "_calibration.png")
+        filpath = self.results_dir + set_type.value + "_calibration.png"
+        if self.s3 is not None:
+            filepath = self.s3.open(filepath, "wb")
+        plt.savefig(filepath)
         plt.close()
 
         # Compute local metrics
@@ -438,13 +464,13 @@ class NetworkTrainer:
         if trial_n is None:
             addon = self.model_name
         else:
-            addon = "trial_" + str(trial_n - 1)
-        file_path = self.results_dir + addon + ".pt"
-        with open(file_path, "wb") as file:
-            pickle.dump(self, file)
-            print("'" + self.model_name + "' has been successfully saved!... train loss: " +
-                  str(np.round(self.train_losses[0], 4)) + " -> " + str(np.round(self.train_losses[-1],
-                                                                                 4)))
+            addon = "trial_" + str(trial_n)
+        filepath = self.results_dir + addon + ".pt"
+        file = open(filepath, "wb") if self.s3 is None else self.s3.open(filepath, "wb")
+        pickle.dump(self, file)
+        print("'" + self.model_name + "' has been successfully saved!... train loss: " +
+              str(np.round(self.train_losses[0], 4)) + " -> " + str(np.round(self.train_losses[-1],
+                                                                             4)))
 
     def summarize_performance(self, show_test=False, show_process=False, show_cm=False, desired_class=None,
                               trial_n=None, assess_calibration=False, perform_extra_analysis=False):
@@ -487,10 +513,16 @@ class NetworkTrainer:
         if show_process or trial_n is not None and len(self.train_losses) != 0:
             self.draw_training_curves()
             if show_process:
-                plt.savefig(self.results_dir + "training_curves.jpg")
+                filepath = self.results_dir + "training_curves.jpg"
+                if self.s3 is not None:
+                    filepath = self.s3.open(filepath, "wb")
+                plt.savefig(filepath)
                 plt.close()
             if trial_n is not None:
-                plt.savefig(self.results_dir + "trial_" + str(trial_n - 1) + "_curves.jpg")
+                filepath = self.results_dir + "trial_" + str(trial_n) + "_curves.jpg"
+                if self.s3 is not None:
+                    filepath = self.s3.open(filepath, "wb")
+                plt.savefig(filepath)
                 plt.close()
 
         return train_stats, val_stats
@@ -708,7 +740,7 @@ class NetworkTrainer:
         return batch_inputs, batch_labels, [batch_age, batch_trial, batch_trial_no_categorical]
 
     @staticmethod
-    def load_model(working_dir, model_name, trial_n=None, use_cuda=True, is_boa=False):
+    def load_model(working_dir, model_name, trial_n=None, use_cuda=True, is_boa=False, s3=None):
         if not is_boa:
             results_fold = OpenFaceDataset.results_fold
             models_fold = OpenFaceDataset.models_fold
@@ -721,8 +753,8 @@ class NetworkTrainer:
             file_name = "trial_" + str(trial_n)
         filepath = (working_dir + results_fold + models_fold + model_name + "/" +
                     file_name + ".pt")
-        with open(filepath, "rb") as file:
-            network_trainer = pickle.load(file)
+        file = open(filepath, "rb") if s3 is None else s3.open(filepath, "rb")
+        network_trainer = pickle.load(file)
 
         network_trainer.use_cuda = torch.cuda.is_available() and use_cuda
         network_trainer.device = torch.device("cuda" if network_trainer.use_cuda else "cpu")

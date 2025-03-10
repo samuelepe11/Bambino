@@ -1,6 +1,7 @@
 # Import packages
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import numpy as np
 
 from DataUtils.OpenFaceInstance import OpenFaceInstance
@@ -98,7 +99,13 @@ class StimulusConv1d(nn.Module):
 
             for i in range(len(self.layer_dims[block]) - 1):
                 conv_layer = "conv_" + block + str(i)
-                out = self.__dict__[conv_layer](out)
+                try:
+                    out = self.__dict__[conv_layer](out)
+                except RuntimeError:
+                    padding = (self.kernel_size - 1) // 2
+                    pad_dims = (padding, padding) if not self.is_2d else (padding, padding, padding, padding)
+                    out = F.pad(out, pad_dims)
+                    out = self.__dict__[conv_layer](out)
                 if layer_interrupt == conv_layer:
                     target_activation = out
                     h = out.register_hook(self.activations_hook)

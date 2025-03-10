@@ -5,6 +5,7 @@ from TrainUtils.NetworkTrainer import NetworkTrainer
 from DataUtils.BoaOpenFaceDataset import BoaOpenFaceDataset
 from Types.TaskType import TaskType
 from Types.NetType import NetType
+from DataUtils.OpenFaceDataset import OpenFaceDataset
 
 
 # Class
@@ -12,12 +13,13 @@ class BoaNetworkTrainer(NetworkTrainer):
     # Define class attributes
     results_fold = BoaOpenFaceDataset.results_fold
     models_fold = BoaOpenFaceDataset.models_fold
-    convergence_patience = 3
+    convergence_patience = 5
 
     def __init__(self, model_name, working_dir, net_type, epochs, val_epochs, params=None, use_cuda=False,
-                 separated_inputs=True):
+                 separated_inputs=True, train_data=None, val_data=None, test_data=None, s3=None):
         super().__init__(model_name, working_dir, TaskType.STIM, net_type, epochs, val_epochs, params, use_cuda,
-                         separated_inputs, is_boa=True)
+                         separated_inputs, is_boa=True, train_data=train_data, val_data=val_data, 
+                         test_data=test_data, s3=s3)
 
     @staticmethod
     def custom_collate_fn(batch):
@@ -52,12 +54,21 @@ if __name__ == "__main__":
     desired_class1 = 1
     show_test1 = False
 
+    # Load data
+    train_data1 = OpenFaceDataset.load_dataset(working_dir=working_dir1, dataset_name="training_set", 
+                                               task_type=task_type1, is_boa=True)
+    val_data1 = OpenFaceDataset.load_dataset(working_dir=working_dir1, dataset_name="validation_set", 
+                                             task_type=task_type1, is_boa=True)
+    test_data1 = OpenFaceDataset.load_dataset(working_dir=working_dir1, dataset_name="test_set", 
+                                              task_type=task_type1, is_boa=True)
+
     # Define trainer
     params1 = {"n_conv_neurons": 256, "n_conv_layers": 1, "kernel_size": 3, "hidden_dim": 32, "p_drop": 0.2,
                "n_extra_fc_after_conv": 0, "n_extra_fc_final": 1, "optimizer": "RMSprop", "lr": 0.01, "batch_size": 64}
     trainer1 = BoaNetworkTrainer(model_name=model_name1, working_dir=working_dir1, net_type=net_type1, epochs=epochs1,
                                  val_epochs=val_epochs1, params=params1, use_cuda=use_cuda1,
-                                 separated_inputs=separated_inputs1)
+                                 separated_inputs=separated_inputs1, train_data=train_data1, val_data=val_data1, 
+                                 test_data=test_data1)
 
     # Train model
     trainer1.train(show_epochs=True)
