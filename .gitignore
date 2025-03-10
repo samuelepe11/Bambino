@@ -1,3 +1,7 @@
 .idea/
 __pycache__/
 venv/
+.ipynb_checkpoints/
+DataUtils/.ipynb_checkpoints/
+Networks/.ipynb_checkpoints/
+TrainUtils/.ipynb_checkpoints/
