@@ -70,11 +70,13 @@ class JAISystem:
 
         if cams_in_one_plot:
             if maps["h"].shape[1] > 1:
-                fig_size = (4, 15)
+                #fig_size = (4, 15)
+                fig_size = (21, 5)
             else:
                 fig_size = (10, 5)
             plt.subplots_adjust(top=0.95, bottom=0.05, hspace=0.4)
-            fig, axs = plt.subplots(nrows=3, ncols=1, figsize=fig_size)
+            #fig, axs = plt.subplots(nrows=3, ncols=1, figsize=fig_size)
+            fig, axs = plt.subplots(nrows=1, ncols=3, figsize=fig_size)
             count = 0
 
         if normalize_jointly:
@@ -137,11 +139,11 @@ class JAISystem:
                         axs[count].set_yticks(range(map.shape[1]),
                                               [s.upper() for s in OpenFaceInstance.dim_labels[block]], rotation=0,
                                               fontsize=7)
-                        if count == 0:
+                        '''if count == 0:
                             # Adjust vertical distancing of the plots
                             box = axs[0].get_position()
                             new_box = [box.x0, box.y0 - 0.06, box.width, box.height]
-                            axs[0].set_position(new_box)
+                            axs[0].set_position(new_box)'''
 
                     else:
                         axs[count].set_yticks([], [])
@@ -391,9 +393,9 @@ if __name__ == "__main__":
                                 cams_in_one_plot=cams_in_one_plot1, normalize_jointly=normalize_jointly1)
 
     # Average children explanations
-    set_types = [SetType.VAL, SetType.TEST]
+    '''set_types = [SetType.VAL, SetType.TEST]
     explainer_type1 = ExplainerType.GC
     for set_type1 in set_types:
         system1.average_explanations(set_type=set_type1, explainer_type=explainer_type1,
                                      target_layer_id=target_layer_id1, cams_in_one_plot=cams_in_one_plot1,
-                                     normalize_jointly=normalize_jointly1)
+                                     normalize_jointly=normalize_jointly1)'''

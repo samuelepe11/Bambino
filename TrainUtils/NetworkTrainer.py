@@ -16,6 +16,7 @@ from calfram.calibrationframework import select_probability, reliabilityplot, ca
 from collections import Counter
 
 from DataUtils.OpenFaceDataset import OpenFaceDataset
+from DataUtils.BoaOpenFaceDataset import BoaOpenFaceDataset
 from DataUtils.OpenFaceInstance import OpenFaceInstance
 from Types.TaskType import TaskType
 from Types.SetType import SetType
@@ -28,15 +29,18 @@ from Networks.StimulusConv2d import StimulusConv2d
 # Class
 class NetworkTrainer:
     # Define class attributes
+    results_fold = OpenFaceDataset.results_fold
+    models_fold = OpenFaceDataset.models_fold
     convergence_patience = 3
     convergence_thresh = 1e-3
 
-    def __init__(self, model_name, working_dir, task_type, net_type, epochs, val_epochs, params=None,
-                 use_cuda=True, separated_inputs=True):
+    def __init__(self, model_name, working_dir, task_type, net_type, epochs, val_epochs, params=None, use_cuda=True,
+                 separated_inputs=True, is_boa=False):
         # Initialize attributes
+        self.is_boa = is_boa
         self.model_name = model_name
         self.working_dir = working_dir
-        self.results_dir = working_dir + OpenFaceDataset.results_fold + OpenFaceDataset.models_fold
+        self.results_dir = working_dir + self.results_fold + self.models_fold
         if model_name not in os.listdir(self.results_dir):
             os.mkdir(self.results_dir + model_name)
         self.results_dir += model_name + "/"
@@ -74,6 +78,8 @@ class NetworkTrainer:
             self.optimizer = getattr(torch.optim, params["optimizer"])(self.net.parameters(), lr=self.net.lr)
         self.train_losses = []
         self.val_losses = []
+        self.train_accuracies = []
+        self.val_accuracies = []
         self.val_eval_epochs = []
         self.optuna_study = None
 
@@ -85,17 +91,18 @@ class NetworkTrainer:
 
         # Load datasets
         self.train_data = OpenFaceDataset.load_dataset(working_dir=self.working_dir, dataset_name="training_set",
-                                                       task_type=self.task_type)
+                                                       task_type=self.task_type, is_boa=is_boa)
         self.train_loader, self.train_dim = self.load_data(self.train_data, shuffle=True)
 
         self.val_data = OpenFaceDataset.load_dataset(working_dir=self.working_dir, dataset_name="validation_set",
                                                      task_type=self.task_type,
-                                                     train_trial_id_stats=self.train_data.trial_id_stats)
+                                                     train_trial_id_stats=self.train_data.trial_id_stats, is_boa=is_boa)
         self.val_loader, self.val_dim = self.load_data(self.val_data)
 
         self.test_data = OpenFaceDataset.load_dataset(working_dir=self.working_dir, dataset_name="test_set",
                                                       task_type=self.task_type,
-                                                      train_trial_id_stats=self.train_data.trial_id_stats)
+                                                      train_trial_id_stats=self.train_data.trial_id_stats,
+                                                      is_boa=is_boa)
         self.test_loader, self.test_dim = self.load_data(self.test_data)
 
         # Data statistics
@@ -111,12 +118,12 @@ class NetworkTrainer:
 
     def load_data(self, data, shuffle=False):
         dataloader = DataLoader(dataset=data, batch_size=self.batch_size, shuffle=shuffle, num_workers=2,
-                                collate_fn=NetworkTrainer.custom_collate_fn)
+                                collate_fn=self.custom_collate_fn)
         dim = len(data)
 
         return dataloader, dim
 
-    def train(self, show_epochs=False, trial_n=None, trial=None):
+    def train(self, show_epochs=False, trial_n=None, trial=None, output_metric="f1", double_output=False):
         if show_epochs:
             self.start_time = time.time()
 
@@ -125,33 +132,45 @@ class NetworkTrainer:
             self.criterion = self.criterion.cuda()
         net = self.net
 
-        if len(self.train_losses) == 0:
-            train_stats, val_stats = self.summarize_performance(show_test=False, show_process=False, show_cm=False)
-            self.train_losses.append(train_stats.loss)
-            self.val_losses.append(val_stats.loss)
-            self.val_eval_epochs.append(0)
+        if len(self.train_losses) == 0 and trial is None:
+            self.summarize_performance(show_test=False, show_process=False, show_cm=False)
 
         for epoch in range(self.epochs):
             net.set_training(True)
             train_loss = 0
+            train_acc = 0
             for x, y, _ in self.train_loader:
-                loss, _ = self.apply_network(net, x, y)
+                loss, _, acc = self.apply_network(net, x, y)
                 train_loss += loss.item()
+                train_acc += acc.item()
 
                 self.optimizer.zero_grad()
                 loss.backward()
                 self.optimizer.step()
 
             train_loss = train_loss / len(self.train_data)
+            train_acc = train_acc / len(self.train_loader)
             self.train_losses.append(train_loss)
+            self.train_accuracies.append(train_acc)
 
             if epoch % self.val_epochs == 0:
                 val_stats = self.test(set_type=SetType.VAL)
                 self.val_losses.append(val_stats.loss)
-                self.val_eval_epochs.append(epoch + 1)
+                self.val_accuracies.append(val_stats.acc)
+                self.val_eval_epochs.append(epoch)
 
-                if trial is not None:
-                    trial.report(val_stats.f1, epoch)
+                # Update and store training curves
+                if epoch != 0:
+                    self.draw_training_curves()
+                    if trial_n is None:
+                        filepath = self.results_dir + "training_curves.jpg"
+                    else:
+                        filepath = self.results_dir + "trial_" + str(trial_n) + "_curves.jpg"
+                    plt.savefig(filepath)
+                    plt.close()
+
+                if trial is not None and not double_output:
+                    trial.report(getattr(val_stats, output_metric), epoch)
                     if trial.should_prune():
                         raise optuna.exceptions.TrialPruned()
 
@@ -176,9 +195,14 @@ class NetworkTrainer:
 
         self.save_model(trial_n)
         if trial_n is not None:
-            _, val_stats = self.summarize_performance(show_test=False, show_process=False, show_cm=False,
-                                                      trial_n=trial_n)
-            return val_stats.f1
+            train_stats, val_stats = self.summarize_performance(show_test=False, show_process=False, show_cm=False,
+                                                                trial_n=trial_n)
+            val_output = getattr(val_stats, output_metric)
+            if double_output:
+                train_output = getattr(train_stats, output_metric)
+                return val_output, train_output
+            else:
+                return val_output
 
     def apply_network(self, net, x, y):
         x = {key: (x[key] - self.train_mean[key]) / self.train_std[key] for key in x.keys()}
@@ -189,7 +213,12 @@ class NetworkTrainer:
 
         # Train loss evaluation
         loss = self.criterion(output, y)
-        return loss, output
+
+        # Accuracy evaluation
+        pred = torch.argmax(output, dim=1)
+        acc = torch.sum(pred == y) / y.shape[0]
+
+        return loss, output, acc
 
     def select_dataset(self, set_type):
         if set_type == SetType.TRAIN:
@@ -248,11 +277,15 @@ class NetworkTrainer:
         ages = []
         trial_ids = []
         trial_ids_no_categorical = []
+        if self.is_boa:
+            sexes = []
+            audios = []
+            speakers = []
         loss = 0
         net.set_training(False)
         with torch.no_grad():
             for x, y, extra_info in data_loader:
-                temp_loss, output = self.apply_network(net, x, y)
+                temp_loss, output, _ = self.apply_network(net, x, y)
                 loss += temp_loss.item()
 
                 # Accuracy evaluation
@@ -268,6 +301,10 @@ class NetworkTrainer:
                     ages.append(extra_info[0])
                     trial_ids.append(extra_info[1])
                     trial_ids_no_categorical.append(extra_info[2])
+                    if self.is_boa:
+                        sexes.append(extra_info[3])
+                        audios.append(extra_info[4])
+                        speakers.append(extra_info[5])
 
             y_prob = torch.concat(y_prob)
             y_true = torch.concat(y_true)
@@ -324,6 +361,9 @@ class NetworkTrainer:
                                             "trial no categorical", checking_patterns=None,
                                             desired_stats=[desired_stat])
             print("---------------------------------------------------------------------------------------------------")
+            if self.is_boa:
+                # ADD HERE EXTRA ANALYSIS FOR BOAprint
+                print("---------------------------------------------------------------------------------------------------")
 
         return stats_holder
 
@@ -419,7 +459,8 @@ class NetworkTrainer:
         if assess_calibration:
             NetworkTrainer.show_calibration_table(train_stats, "training")
 
-        print("\n=======================================================================================================\n")
+        if perform_extra_analysis:
+            print("\n=======================================================================================================\n")
         val_stats = self.test(set_type=SetType.VAL, show_cm=show_cm, desired_class=desired_class,
                               assess_calibration=assess_calibration, perform_extra_analysis=perform_extra_analysis)
         print("Validation loss = " + str(np.round(val_stats.loss, 5)) + " - Validation accuracy = " +
@@ -431,7 +472,8 @@ class NetworkTrainer:
             NetworkTrainer.show_calibration_table(val_stats, "validation")
 
         if show_test:
-            print("\n=======================================================================================================\n")
+            if perform_extra_analysis:
+                print("\n=======================================================================================================\n")
             test_stats = self.test(set_type=SetType.TEST, show_cm=show_cm, desired_class=desired_class,
                                    assess_calibration=assess_calibration, perform_extra_analysis=perform_extra_analysis)
             print("Test loss = " + str(np.round(test_stats.loss, 5)) + " - Test accuracy = " +
@@ -442,14 +484,8 @@ class NetworkTrainer:
             if assess_calibration:
                 NetworkTrainer.show_calibration_table(test_stats, "test")
 
-        if show_process or trial_n is not None:
-            plt.figure()
-            plt.plot(self.train_losses, "b", label="Training set")
-            plt.plot(self.val_eval_epochs, self.val_losses, "g", label="Validation set")
-            plt.legend()
-            plt.title("Training curves")
-            plt.ylabel("Loss")
-            plt.xlabel("Epoch")
+        if show_process or trial_n is not None and len(self.train_losses) != 0:
+            self.draw_training_curves()
             if show_process:
                 plt.savefig(self.results_dir + "training_curves.jpg")
                 plt.close()
@@ -458,6 +494,27 @@ class NetworkTrainer:
                 plt.close()
 
         return train_stats, val_stats
+
+    def draw_training_curves(self):
+        plt.close()
+        plt.figure(figsize=(5, 7))
+        plt.suptitle("Training curves")
+
+        # Losses
+        plt.subplot(2, 1, 1)
+        plt.plot(self.train_losses, "b", label="Training set")
+        plt.plot(self.val_eval_epochs, self.val_losses, "g", label="Validation set")
+        plt.legend()
+        plt.ylabel("Loss")
+        plt.xlabel("Epoch")
+
+        # Accuracies
+        plt.subplot(2, 1, 2)
+        plt.plot(self.train_accuracies, "b", label="Training set")
+        plt.plot(self.val_eval_epochs, self.val_accuracies, "g", label="Validation set")
+        plt.legend()
+        plt.ylabel("Accuracy")
+        plt.xlabel("Epoch")
 
     def show_clinician_stim_performance(self, set_type=SetType.TRAIN, desired_class=None, perform_extra_analysis=False):
         data, _, dim = self.select_dataset(set_type)
@@ -651,12 +708,18 @@ class NetworkTrainer:
         return batch_inputs, batch_labels, [batch_age, batch_trial, batch_trial_no_categorical]
 
     @staticmethod
-    def load_model(working_dir, model_name, trial_n=None, use_cuda=True):
+    def load_model(working_dir, model_name, trial_n=None, use_cuda=True, is_boa=False):
+        if not is_boa:
+            results_fold = OpenFaceDataset.results_fold
+            models_fold = OpenFaceDataset.models_fold
+        else:
+            results_fold = BoaOpenFaceDataset.results_fold
+            models_fold = BoaOpenFaceDataset.models_fold
         if trial_n is None:
             file_name = model_name
         else:
             file_name = "trial_" + str(trial_n)
-        filepath = (working_dir + OpenFaceDataset.results_fold + OpenFaceDataset.models_fold + model_name + "/" +
+        filepath = (working_dir + results_fold + models_fold + model_name + "/" +
                     file_name + ".pt")
         with open(filepath, "rb") as file:
             network_trainer = pickle.load(file)
@@ -682,7 +745,7 @@ class NetworkTrainer:
         if trial_n is None and network_trainer.model_name.endswith("_optuna"):
             old_model_name = network_trainer.model_name
             network_trainer.model_name = old_model_name[:-7]
-            addon = OpenFaceDataset.models_fold
+            addon = models_fold
             if addon in network_trainer.results_dir:
                 addon = ""
             network_trainer.results_dir = (network_trainer.results_dir[:-(len(old_model_name) + 1)] +
