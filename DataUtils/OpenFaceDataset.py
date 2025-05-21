@@ -25,19 +25,20 @@ class OpenFaceDataset(Dataset):
     fc = 25
 
     # Define folders
-    data_fold = "data/preliminary_data/"
+    data_fold = "data/preliminary_toy/"
     preliminary_fold = "preliminary_analysis/"
-    results_fold = "results/preliminary_data/"
+    results_fold = "results/preliminary_toy/"
     models_fold = "models/"
     jai_fold = "JAI/"
 
-    def __init__(self, dataset_name, working_dir, file_name, data_instances=None, is_boa=False):
+    def __init__(self, dataset_name, working_dir, file_name, data_instances=None, is_boa=False, is_toy=True):
         self.working_dir = working_dir
         self.data_dir = working_dir + self.data_fold
         self.results_dir = working_dir + self.results_fold
         self.file_name = file_name
         self.dataset_name = dataset_name
         self.is_boa = is_boa
+        self.is_toy = is_toy
         self.preliminary_dir = self.results_dir + self.preliminary_fold
         if self.dataset_name not in os.listdir(self.preliminary_dir):
             os.mkdir(self.preliminary_dir + self.dataset_name)
@@ -65,9 +66,9 @@ class OpenFaceDataset(Dataset):
             for pt_id in self.ids:
                 for trial in self.trials:
                     temp_data = data.loc[(data["participant_id"] == pt_id) & (data["trial_id"] == trial), :]
-                    if temp_data.shape[0] == 0:
+                    if temp_data.shape[0] == 0 or temp_data["low_confidence_for_trial"].iloc[0]:
                         continue
-                    self.instances.append(OpenFaceInstance(temp_data, is_boa))
+                    self.instances.append(OpenFaceInstance(temp_data, is_boa, is_toy))
         else:
             self.ids = np.unique([instance.pt_id for instance in data_instances])
             self.instances = data_instances
@@ -110,7 +111,7 @@ class OpenFaceDataset(Dataset):
 
         return torch.Tensor(ages), torch.Tensor(trial_ids)
 
-    def split_dataset(self, train_perc, is_boa=False):
+    def split_dataset(self, train_perc, is_child_dataset=False):
         # Get training set instances
         n_pt = len(self.ids)
         n_train = int(np.round(n_pt * train_perc))
@@ -127,7 +128,7 @@ class OpenFaceDataset(Dataset):
         id_test = list(set(remaining) - set(id_val))
         test_instances = self.get_instances(id_test)
 
-        if not is_boa:
+        if not is_child_dataset:
             # Create and store datasets
             train_set = OpenFaceDataset(dataset_name="training_set", working_dir=self.working_dir,
                                         file_name=self.file_name,
@@ -201,10 +202,10 @@ class OpenFaceDataset(Dataset):
 
         # Count sequence duration
         durations = [instance.face_info.shape[0] / OpenFaceDataset.fc for instance in self.instances]
-        print("Mean sequence duration = ", np.mean(durations), "s", "(std = " + str(np.std(durations)) + ")")
+        print("Mean sequence duration = ", str(np.mean(durations)) + "s", "(std = " + str(np.std(durations)) + ")")
         for instance in self.instances:
             length = instance.face_info.shape[0]
-            if length < 300:
+            if (not self.is_toy or self.is_boa) and length < 300:
                 print("Patient", instance.pt_id, "(trial " + str(instance.trial_id) + ") has", length, "data points")
 
         if return_output:
@@ -317,8 +318,14 @@ class OpenFaceDataset(Dataset):
             plt.close()
 
     @staticmethod
-    def load_dataset(working_dir, dataset_name, task_type=None, train_trial_id_stats=None, is_boa=False, s3=None):
-        data_fold = OpenFaceDataset.data_fold if not is_boa else "data/boa/"
+    def load_dataset(working_dir, dataset_name, task_type=None, train_trial_id_stats=None, is_boa=False, is_toy=False,
+                     s3=None):
+        if is_toy:
+            data_fold = "data/toy/"
+        elif is_boa:
+            data_fold = "data/boa/"
+        else:
+            data_fold = OpenFaceDataset.data_fold
         file_path = working_dir + data_fold + dataset_name + ".pt"
         file = open(file_path, "rb") if s3 is None else s3.open(file_path, "rb")
         dataset = pickle.load(file)

@@ -42,7 +42,7 @@ class StatsHolder:
             self.fnr = fn / (tp + fn + self.eps)
             self.fpr = fp / (tn + fp + self.eps)
 
-        # Compute the Macro-Averaged statistics for the multiclass scenario
+        # Compute the Macro-Averaged statistics for the multiclass scenario and compute general purpose statistics
         if get_distribution_params:
             # Get means
             self.acc_m = np.mean(self.acc)

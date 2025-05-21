@@ -1,5 +1,6 @@
 # Import packages
 import numpy as np
+import pandas as pd
 
 
 # Class
@@ -18,7 +19,7 @@ class OpenFaceInstance:
                         "Jaw Drop", "Blink"]}
     subplot_settings = {"g": [15, 10, 2, 4], "h": [15, 10, 3, 5], "f": [15, 10, 4, 5]}
 
-    def __init__(self, trial_data, is_boa):
+    def __init__(self, trial_data, is_boa, is_toy):
         trial_data = trial_data.to_numpy()
         if not is_boa:
             pt_ind = 0
@@ -26,20 +27,26 @@ class OpenFaceInstance:
             age_ind = 3
             sex_ind = 4
             trial_type_ind = 8
-            gaze_ind = slice(20, 28)
-            head_ind = slice(28, 41)
-            face_ind = slice(41, 58)
+            if not is_toy:
+                gaze_ind = range(20, 28)
+                head_ind = range(28, 41)
+                face_ind = range(41, 58)
+                self.clinician_pred = trial_data[0, 16]
+            else:
+                gaze_ind = range(21, 29)
+                head_ind = range(29, 42)
+                face_ind = range(42, 59)
+                self.clinician_pred = trial_data[0, 17]
 
-            self.clinician_pred = trial_data[0, 16]
         else:
             pt_ind = 0
             trial_ind = 4
             age_ind = 3
             sex_ind = 1
             trial_type_ind = 5
-            gaze_ind = slice(17, 25)
-            head_ind = slice(25, 38)
-            face_ind = slice(38, 55)
+            gaze_ind = range(17, 25)
+            head_ind = range(25, 38)
+            face_ind = range(38, 55)
 
             self.audio = trial_data[0, 6][:-4].replace("_", " ")
             self.speaker = trial_data[0, 7]
@@ -57,10 +64,27 @@ class OpenFaceInstance:
         self.sex = trial_data[0, sex_ind]
         self.trial_type = trial_data[0, trial_type_ind]
 
+        conf_ind = 19 if not is_boa else 15
+        if is_toy:
+            # Cut windows from stimulus presentation to reward display
+            if not is_boa:
+                timestamp = trial_data[:, 10]
+                max_time = trial_data[0, 15]
+                max_time = max_time if not np.isnan(max_time) else np.inf
+                windows_inds = (timestamp >= 0) & (timestamp < max_time)
+                trial_data = trial_data[windows_inds, :]
+
+            # Remove unsuccessful acquisitions and interpolate signals
+            low_conf_inds = trial_data[:, conf_ind] < 0.5
+            trial_data[low_conf_inds, :] = np.nan
+
         # Read time varying attributes
-        self.gaze_info = trial_data[:, gaze_ind].astype(np.float32)
-        self.head_info = trial_data[:, head_ind].astype(np.float32)
-        self.face_info = trial_data[:, face_ind].astype(np.float32)
+        self.gaze_info = np.stack([pd.Series(trial_data[:, i].astype(np.float32)).interpolate(method="linear")
+                                   for i in gaze_ind], 1)
+        self.head_info = np.stack([pd.Series(trial_data[:, i].astype(np.float32)).interpolate(method="linear")
+                                   for i in head_ind], 1)
+        self.face_info = np.stack([pd.Series(trial_data[:, i].astype(np.float32)).interpolate(method="linear")
+                                   for i in face_ind], 1)
 
     @staticmethod
     def categorize_age(age, is_boa):

@@ -4,14 +4,14 @@ import numpy as np
 from collections import Counter
 
 from DataUtils.OpenFaceDataset import OpenFaceDataset
+from DataUtils.ToyOpenFaceDataset import ToyOpenFaceDataset
 from DataUtils.OpenFaceInstance import OpenFaceInstance
 
 
 # Class
-class BoaOpenFaceDataset(OpenFaceDataset):
+class BoaOpenFaceDataset(ToyOpenFaceDataset):
     # Define class attributes
     age_groups = ["[3-5.5)", "[5.5-7]"]
-    sex_groups = ["Male", "Female"]
     speaker_groups = ["Left", "Right"]
 
     # Define folders
@@ -29,10 +29,9 @@ class BoaOpenFaceDataset(OpenFaceDataset):
 
     def __getitem__(self, idx):
         x, y, extra = super().__getitem__(idx)
-        age, trial_id_categorical, trial_id = extra
+        age, trial_id_categorical, trial_id, sex = extra
 
         instance = self.instances[idx]
-        sex = OpenFaceDataset.preprocess_label(instance.sex)
         audio = list(self.audio_groups).index(instance.audio)
         audio = OpenFaceDataset.preprocess_label(audio)
         speaker = instance.speaker if instance.speaker is not None else -1
@@ -40,9 +39,9 @@ class BoaOpenFaceDataset(OpenFaceDataset):
 
         return x, y, [age, trial_id_categorical, trial_id, sex, audio, speaker]
 
-    def split_dataset(self, train_perc, is_boa=False):
+    def split_dataset(self, train_perc, is_child_dataset=False):
         # Get set-specific instances
-        train_instances, val_instances, test_instances = super().split_dataset(train_perc, is_boa=True)
+        train_instances, val_instances, test_instances = super().split_dataset(train_perc, is_child_dataset=True)
 
         # Create and store datasets
         train_set = BoaOpenFaceDataset(dataset_name="training_set", working_dir=self.working_dir,
@@ -58,19 +57,8 @@ class BoaOpenFaceDataset(OpenFaceDataset):
         test_set.store_dataset()
 
     def compute_statistics(self, trial_id_stats=None, return_output=False):
-        ages_categorical, ages_categorical_all, trials_categorical = super().compute_statistics(trial_id_stats,
-                                                                                                True)
-
-        # Count gender (at patient level)
-        sexes = []
-        for pt_id in self.ids:
-            for instance in self.instances:
-                if instance.pt_id == pt_id:
-                    sex = instance.sex
-                    sexes.append(sex)
-                    break
-        OpenFaceDataset.draw_hist(sexes, 2, "Gender distribution", self.preliminary_dir + "sex_distr",
-                                  self.sex_groups)
+        ages_categorical, ages_categorical_all, trials_categorical, sexes, sexes_all \
+            = super().compute_statistics(trial_id_stats,True)
 
         # Count audios
         audio_dict = {a: 0 for a in self.audio_groups}
@@ -84,11 +72,6 @@ class BoaOpenFaceDataset(OpenFaceDataset):
         OpenFaceDataset.draw_hist(speakers, len(self.speaker_groups), "Speaker distribution", self.preliminary_dir
                                   + "speaker_distr", self.speaker_groups)
 
-        # Count instances by both age and gender (at patient level)
-        OpenFaceDataset.interaction_count(ages_categorical, sexes, self.age_groups, self.sex_groups,
-                                          "Age (categorical)", "Gender",
-                                          self.preliminary_dir + "age_vs_gender.png")
-
         # Count instances by both age and speaker
         OpenFaceDataset.interaction_count(ages_categorical_all, speakers, self.age_groups, self.speaker_groups,
                                           "Age (categorical)", "Speaker",
@@ -99,12 +82,6 @@ class BoaOpenFaceDataset(OpenFaceDataset):
         OpenFaceDataset.interaction_count(ages_categorical_all, audios, self.age_groups, self.audio_groups,
                                           "Age (categorical)", "Sound",
                                           self.preliminary_dir + "age_vs_audio.png")
-
-        # Count instances by both gender and number of trials
-        sexes_all = [instance.sex for instance in self.instances]
-        OpenFaceDataset.interaction_count(sexes_all, trials_categorical, self.sex_groups, self.trial_id_groups,
-                                          "Gender", "Trial ID (categorical)",
-                                          self.preliminary_dir + "sex_vs_trial.png")
 
         # Count instances by both gender and speaker
         OpenFaceDataset.interaction_count(sexes_all, speakers, self.sex_groups, self.speaker_groups, "Gender",
@@ -147,11 +124,11 @@ if __name__ == "__main__":
     dataset1.compute_statistics()
 
     # Remove short sequences
-    # dataset1.remove_short_sequences()
+    dataset1.remove_short_sequences()
 
     # Divide dataset
     train_perc1 = 0.7
-    # dataset1.split_dataset(train_perc=train_perc1)
+    dataset1.split_dataset(train_perc=train_perc1)
 
     # Load training set
     print()

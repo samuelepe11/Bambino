@@ -447,7 +447,7 @@ class NetworkTrainer:
         reliabilityplot(class_scores, strategy=10, split=False)
         plt.xlabel("Predicted probability")
         plt.ylabel("True probability")
-        filpath = self.results_dir + set_type.value + "_calibration.png"
+        filepath = self.results_dir + set_type.value + "_calibration.png"
         if self.s3 is not None:
             filepath = self.s3.open(filepath, "wb")
         plt.savefig(filepath)
