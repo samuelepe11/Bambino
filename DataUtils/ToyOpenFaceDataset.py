@@ -149,26 +149,26 @@ if __name__ == "__main__":
     file_name1 = "processed_openface_toy_data.csv"
 
     # Read data
-    # dataset1 = ToyOpenFaceDataset(dataset_name="complete_dataset_before_adjust", working_dir=working_dir1,
-    #                               file_name=file_name1)
+    dataset1 = ToyOpenFaceDataset(dataset_name="complete_dataset_before_adjust", working_dir=working_dir1,
+                                  file_name=file_name1)
 
     # Compute statistics
-    # dataset1.compute_statistics()
+    dataset1.compute_statistics()
 
     # Reduce control length
     print("-----------------------------------------------------------------------------------------------------------")
-    # dataset1.adjust_data_length()
-    # dataset_name1 = "complete_dataset"
-    # dataset1.dataset_name = dataset_name1
-    # dataset1.preliminary_dir = dataset1.results_dir + dataset1.preliminary_fold + dataset_name1 + "/"
+    dataset1.adjust_data_length()
+    dataset_name1 = "complete_dataset"
+    dataset1.dataset_name = dataset_name1
+    dataset1.preliminary_dir = dataset1.results_dir + dataset1.preliminary_fold + dataset_name1 + "/"
 
     # Compute statistics
     print("-----------------------------------------------------------------------------------------------------------")
-    # dataset1.compute_statistics()
+    dataset1.compute_statistics()
 
     # Divide dataset
     train_perc1 = 0.7
-    # dataset1.split_dataset(train_perc=train_perc1)
+    dataset1.split_dataset(train_perc=train_perc1)
 
     # Load training set
     print()

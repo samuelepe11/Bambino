@@ -1,7 +1,10 @@
 .idea/
+.idea_backup/
 __pycache__/
 venv/
 .ipynb_checkpoints/
 DataUtils/.ipynb_checkpoints/
 Networks/.ipynb_checkpoints/
+Networks/__pycache__/
 TrainUtils/.ipynb_checkpoints/
+TrainUtils/__pycache__/

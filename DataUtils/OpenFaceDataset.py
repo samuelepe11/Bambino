@@ -31,7 +31,7 @@ class OpenFaceDataset(Dataset):
     models_fold = "models/"
     jai_fold = "JAI/"
 
-    def __init__(self, dataset_name, working_dir, file_name, data_instances=None, is_boa=False, is_toy=True):
+    def __init__(self, dataset_name, working_dir, file_name, data_instances=None, is_boa=False, is_toy=False):
         self.working_dir = working_dir
         self.data_dir = working_dir + self.data_fold
         self.results_dir = working_dir + self.results_fold
@@ -66,7 +66,8 @@ class OpenFaceDataset(Dataset):
             for pt_id in self.ids:
                 for trial in self.trials:
                     temp_data = data.loc[(data["participant_id"] == pt_id) & (data["trial_id"] == trial), :]
-                    if temp_data.shape[0] == 0 or temp_data["low_confidence_for_trial"].iloc[0]:
+                    if (temp_data.shape[0] == 0 or temp_data["low_confidence_for_trial"].iloc[0] or
+                            (temp_data["confidence"].iloc[0:52] <= 0.5).all()):
                         continue
                     self.instances.append(OpenFaceInstance(temp_data, is_boa, is_toy))
         else:
@@ -320,7 +321,7 @@ class OpenFaceDataset(Dataset):
     @staticmethod
     def load_dataset(working_dir, dataset_name, task_type=None, train_trial_id_stats=None, is_boa=False, is_toy=False,
                      s3=None):
-        if is_toy:
+        if is_toy and not is_boa:
             data_fold = "data/toy/"
         elif is_boa:
             data_fold = "data/boa/"

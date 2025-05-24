@@ -12,10 +12,12 @@ from optuna.distributions import FloatDistribution, IntDistribution, Categorical
 from optuna.exceptions import TrialPruned
 
 from TrainUtils.NetworkTrainer import NetworkTrainer
+from TrainUtils.ToyNetworkTrainer import ToyNetworkTrainer
 from TrainUtils.BoaNetworkTrainer import BoaNetworkTrainer
 from Types.TaskType import TaskType
 from Types.NetType import NetType
 from DataUtils.OpenFaceDataset import OpenFaceDataset
+from DataUtils.ToyOpenFaceDataset import ToyOpenFaceDataset
 from DataUtils.BoaOpenFaceDataset import BoaOpenFaceDataset
 
 
@@ -23,8 +25,8 @@ from DataUtils.BoaOpenFaceDataset import BoaOpenFaceDataset
 class OptunaParamFinder:
 
     def __init__(self, model_name, working_dir, task_type, net_type, epochs, batch_size, val_epochs, n_trials,
-                 separated_inputs=True, use_cuda=False, is_boa=False, output_metric="f1", double_output=False, 
-                 train_data=None, val_data=None, test_data=None, s3=None):
+                 separated_inputs=True, use_cuda=False, is_toy=False, is_boa=False, output_metric="f1",
+                 double_output=False, train_data=None, val_data=None, test_data=None, s3=None):
         self.model_name = model_name
         self.working_dir = working_dir
         self.task_type = task_type
@@ -34,6 +36,7 @@ class OptunaParamFinder:
         self.val_epochs = val_epochs
         self.separated_inputs = separated_inputs
         self.use_cuda = use_cuda
+        self.is_toy = is_toy
         self.is_boa = is_boa
 
         self.train_data = train_data
@@ -47,8 +50,12 @@ class OptunaParamFinder:
 
         # Create folder
         if not is_boa:
-            results_fold = OpenFaceDataset.results_fold
-            models_fold = OpenFaceDataset.models_fold
+            if is_toy:
+                results_fold = ToyOpenFaceDataset.results_fold
+                models_fold = ToyOpenFaceDataset.models_fold
+            else:
+                results_fold = OpenFaceDataset.results_fold
+                models_fold = OpenFaceDataset.models_fold
         else:
             results_fold = BoaOpenFaceDataset.results_fold
             models_fold = BoaOpenFaceDataset.models_fold
@@ -103,7 +110,8 @@ class OptunaParamFinder:
                     for i in range(n_untracked_models + 1):
                         print()
                         trainer = NetworkTrainer.load_model(self.working_dir, self.model_name, trial_n=self.counter,
-                                                            use_cuda=self.use_cuda, is_boa=self.is_boa, s3=s3)
+                                                            use_cuda=self.use_cuda, is_toy=self.is_toy, is_boa=self.is_boa,
+                                                            s3=s3)
                         train_stats, val_stats = trainer.summarize_performance(show_test=False, show_process=False,
                                                                                show_cm=False, trial_n=self.counter)
                         val_output = getattr(val_stats, output_metric)
@@ -159,12 +167,19 @@ class OptunaParamFinder:
         self.counter += 1
         try:
             if not self.is_boa:
-                trainer = NetworkTrainer(model_name=self.model_name, working_dir=self.working_dir,
-                                         task_type=self.task_type, net_type=self.net_type, epochs=self.epochs,
-                                         val_epochs=self.val_epochs, params=params,
-                                         separated_inputs=self.separated_inputs, use_cuda=self.use_cuda, 
-                                         train_data=self.train_data, val_data=self.val_data, 
-                                         test_data=self.test_data, s3=self.s3)
+                if not self.is_toy:
+                    trainer = NetworkTrainer(model_name=self.model_name, working_dir=self.working_dir,
+                                             task_type=self.task_type, net_type=self.net_type, epochs=self.epochs,
+                                             val_epochs=self.val_epochs, params=params,
+                                             separated_inputs=self.separated_inputs, use_cuda=self.use_cuda,
+                                             train_data=self.train_data, val_data=self.val_data,
+                                             test_data=self.test_data, s3=self.s3)
+                else:
+                    trainer = ToyNetworkTrainer(model_name=self.model_name, working_dir=self.working_dir,
+                                                net_type=self.net_type, epochs=self.epochs, val_epochs=self.val_epochs,
+                                                params=params, separated_inputs=self.separated_inputs,
+                                                use_cuda=self.use_cuda, train_data=self.train_data,
+                                                val_data=self.val_data, test_data=self.test_data, s3=self.s3)
             else:
                 trainer = BoaNetworkTrainer(model_name=self.model_name, working_dir=self.working_dir,
                                             net_type=self.net_type, epochs=self.epochs, val_epochs=self.val_epochs,
@@ -300,23 +315,33 @@ class OptunaParamFinder:
 if __name__ == "__main__":
     # Define variables
     working_dir1 = "./../../"
-    model_name1 = "stimulus_conv2d_optuna"
-    net_type1 = NetType.CONV2D
+    model_name1 = "stimulus_conv1d_optuna"
+    net_type1 = NetType.CONV1D
     task_type1 = TaskType.TRIAL
     epochs1 = 200
     batch_size1 = None
     val_epochs1 = 10
     separated_inputs1 = True
-    is_boa1 = True
+    is_boa1 = False
+    is_toy1 = True
+
+    # Load data
+    train_data1 = OpenFaceDataset.load_dataset(working_dir=working_dir1, dataset_name="training_set", is_toy=is_toy1,
+                                               is_boa=is_boa1)
+    val_data1 = OpenFaceDataset.load_dataset(working_dir=working_dir1, dataset_name="validation_set", is_toy=is_toy1,
+                                             is_boa=is_boa1)
+    test_data1 = OpenFaceDataset.load_dataset(working_dir=working_dir1, dataset_name="test_set", is_toy=is_toy1,
+                                              is_boa=is_boa1)
 
     # Define Optuna model
-    n_trials1 = 20
+    n_trials1 = 10
     output_metric1 = "mcc"
     double_output1 = False
     optuna1 = OptunaParamFinder(model_name=model_name1, working_dir=working_dir1, task_type=task_type1,
-                                net_type=net_type1, epochs=epochs1, batch_size=batch_size1,
-                                val_epochs=val_epochs1, n_trials=n_trials1, separated_inputs=separated_inputs1,
-                                output_metric=output_metric1, double_output=double_output1, is_boa=is_boa1)
+                                net_type=net_type1, epochs=epochs1, batch_size=batch_size1, val_epochs=val_epochs1,
+                                n_trials=n_trials1, separated_inputs=separated_inputs1, output_metric=output_metric1,
+                                double_output=double_output1, is_boa=is_boa1, is_toy=is_toy1, train_data=train_data1,
+                                val_data=val_data1, test_data=test_data1)
 
     # Run search
     optuna1.initialize_study()

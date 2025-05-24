@@ -66,17 +66,9 @@ class OpenFaceInstance:
 
         conf_ind = 19 if not is_boa else 15
         if is_toy:
-            # Cut windows from stimulus presentation to reward display
-            if not is_boa:
-                timestamp = trial_data[:, 10]
-                max_time = trial_data[0, 15]
-                max_time = max_time if not np.isnan(max_time) else np.inf
-                windows_inds = (timestamp >= 0) & (timestamp < max_time)
-                trial_data = trial_data[windows_inds, :]
-
             # Remove unsuccessful acquisitions and interpolate signals
-            low_conf_inds = trial_data[:, conf_ind] < 0.5
-            trial_data[low_conf_inds, :] = np.nan
+            low_conf_inds = trial_data[:, conf_ind] <= 0.5
+            trial_data[low_conf_inds, gaze_ind[0]:] = np.nan
 
         # Read time varying attributes
         self.gaze_info = np.stack([pd.Series(trial_data[:, i].astype(np.float32)).interpolate(method="linear")
@@ -85,6 +77,16 @@ class OpenFaceInstance:
                                    for i in head_ind], 1)
         self.face_info = np.stack([pd.Series(trial_data[:, i].astype(np.float32)).interpolate(method="linear")
                                    for i in face_ind], 1)
+
+        # Cut windows from stimulus presentation to reward display
+        if is_toy and not is_boa:
+            timestamp = trial_data[:, 10]
+            max_time = trial_data[0, 15]
+            max_time = max_time if not np.isnan(max_time) else np.inf
+            windows_inds = (timestamp >= 0) & (timestamp < max_time)
+            self.gaze_info = self.gaze_info[windows_inds, :]
+            self.head_info = self.head_info[windows_inds, :]
+            self.face_info = self.face_info[windows_inds, :]
 
     @staticmethod
     def categorize_age(age, is_boa):

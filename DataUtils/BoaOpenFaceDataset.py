@@ -109,7 +109,7 @@ class BoaOpenFaceDataset(ToyOpenFaceDataset):
 # Main
 if __name__ == "__main__":
     # Define seeds
-    seed = 1
+    seed = 10
     random.seed(seed)
 
     # Define variables
@@ -134,7 +134,7 @@ if __name__ == "__main__":
     print()
     train_set1 = OpenFaceDataset.load_dataset(working_dir=working_dir1, dataset_name="training_set", is_boa=True)
     train_set1.compute_statistics()
-    # train_set1.store_dataset()
+    train_set1.store_dataset()
 
     # Load training set
     print()

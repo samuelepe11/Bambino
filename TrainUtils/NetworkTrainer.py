@@ -16,6 +16,7 @@ from calfram.calibrationframework import select_probability, reliabilityplot, ca
 from collections import Counter
 
 from DataUtils.OpenFaceDataset import OpenFaceDataset
+from DataUtils.ToyOpenFaceDataset import ToyOpenFaceDataset
 from DataUtils.BoaOpenFaceDataset import BoaOpenFaceDataset
 from DataUtils.OpenFaceInstance import OpenFaceInstance
 from Types.TaskType import TaskType
@@ -35,9 +36,11 @@ class NetworkTrainer:
     convergence_thresh = 1e-3
 
     def __init__(self, model_name, working_dir, task_type, net_type, epochs, val_epochs, params=None, use_cuda=True,
-                 separated_inputs=True, is_boa=False, train_data=None, val_data=None, test_data=None, s3=None):
+                 separated_inputs=True, is_boa=False, is_toy=False, train_data=None, val_data=None, test_data=None,
+                 s3=None):
         # Initialize attributes
         self.is_boa = is_boa
+        self.is_toy = is_toy
         self.model_name = model_name
         self.working_dir = working_dir
         self.results_dir = working_dir + self.results_fold + self.models_fold
@@ -98,7 +101,7 @@ class NetworkTrainer:
         # Load datasets
         if train_data is None:
             self.train_data = OpenFaceDataset.load_dataset(working_dir=self.working_dir, dataset_name="training_set",
-                                                           task_type=self.task_type, is_boa=is_boa, s3=s3)
+                                                           task_type=self.task_type, is_boa=is_boa, is_toy=is_toy, s3=s3)
         else:
             self.train_data = train_data
         self.train_loader, self.train_dim = self.load_data(self.train_data, shuffle=True)
@@ -106,8 +109,8 @@ class NetworkTrainer:
         if val_data is None:
             self.val_data = OpenFaceDataset.load_dataset(working_dir=self.working_dir, dataset_name="validation_set",
                                                          task_type=self.task_type,
-                                                         train_trial_id_stats=self.train_data.trial_id_stats, is_boa=is_boa, 
-                                                         s3=s3)
+                                                         train_trial_id_stats=self.train_data.trial_id_stats,
+                                                         is_boa=is_boa, is_toy=is_toy, s3=s3)
         else:
             self.val_data = val_data
         self.val_loader, self.val_dim = self.load_data(self.val_data)
@@ -116,7 +119,7 @@ class NetworkTrainer:
             self.test_data = OpenFaceDataset.load_dataset(working_dir=self.working_dir, dataset_name="test_set",
                                                           task_type=self.task_type,
                                                           train_trial_id_stats=self.train_data.trial_id_stats,
-                                                          is_boa=is_boa, s3=s3)
+                                                          is_boa=is_boa, is_toy=is_toy, s3=s3)
         else:
             self.test_data = test_data
         self.test_loader, self.test_dim = self.load_data(self.test_data)
@@ -656,6 +659,14 @@ class NetworkTrainer:
 
         return StatsHolder.average_bootstrap_values(stat_list=boot_stats)
 
+    def get_normalization_params(self, data):
+        loader = DataLoader(dataset=data, batch_size=data.len, shuffle=False, num_workers=0,
+                            collate_fn=self.custom_collate_fn)
+        for x, _, _ in loader:
+            mean = {key: torch.mean(x[key], dim=(0, 1)) for key in x.keys()}
+            std = {key: torch.std(x[key], dim=(0, 1)) for key in x.keys()}
+        return mean, std
+
     @staticmethod
     def compute_binary_confusion_matrix(y_true, y_predicted, classes=None):
         if classes is None:
@@ -740,10 +751,14 @@ class NetworkTrainer:
         return batch_inputs, batch_labels, [batch_age, batch_trial, batch_trial_no_categorical]
 
     @staticmethod
-    def load_model(working_dir, model_name, trial_n=None, use_cuda=True, is_boa=False, s3=None):
+    def load_model(working_dir, model_name, trial_n=None, use_cuda=True, is_toy=False, is_boa=False, s3=None):
         if not is_boa:
-            results_fold = OpenFaceDataset.results_fold
-            models_fold = OpenFaceDataset.models_fold
+            if is_toy:
+                results_fold = ToyOpenFaceDataset.results_fold
+                models_fold = ToyOpenFaceDataset.models_fold
+            else:
+                results_fold = OpenFaceDataset.results_fold
+                models_fold = OpenFaceDataset.models_fold
         else:
             results_fold = BoaOpenFaceDataset.results_fold
             models_fold = BoaOpenFaceDataset.models_fold
@@ -783,15 +798,6 @@ class NetworkTrainer:
             network_trainer.results_dir = (network_trainer.results_dir[:-(len(old_model_name) + 1)] +
                                            addon + network_trainer.model_name + "/")
         return network_trainer
-
-    @staticmethod
-    def get_normalization_params(data):
-        loader = DataLoader(dataset=data, batch_size=data.len, shuffle=False, num_workers=0,
-                            collate_fn=NetworkTrainer.custom_collate_fn)
-        for x, _, _ in loader:
-            mean = {key: torch.mean(x[key], dim=(0, 1)) for key in x.keys()}
-            std = {key: torch.std(x[key], dim=(0, 1)) for key in x.keys()}
-        return mean, std
 
     @staticmethod
     def set_seed(seed):
