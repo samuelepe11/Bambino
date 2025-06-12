@@ -97,7 +97,7 @@ class ToyOpenFaceDataset(OpenFaceDataset):
         ages_categorical, ages_categorical_all, trials_categorical = super().compute_statistics(trial_id_stats,
                                                                                                 True)
 
-        # Count gender (at patient level)
+        # Count sex (at patient level)
         sexes = []
         for pt_id in self.ids:
             for instance in self.instances:
@@ -105,18 +105,18 @@ class ToyOpenFaceDataset(OpenFaceDataset):
                     sex = instance.sex
                     sexes.append(sex)
                     break
-        OpenFaceDataset.draw_hist(sexes, 2, "Gender distribution", self.preliminary_dir + "sex_distr",
+        OpenFaceDataset.draw_hist(sexes, 2, "Sex distribution", self.preliminary_dir + "sex_distr",
                                   self.sex_groups)
 
-        # Count instances by both age and gender (at patient level)
+        # Count instances by both age and sex (at patient level)
         OpenFaceDataset.interaction_count(ages_categorical, sexes, self.age_groups, self.sex_groups,
-                                          "Age (categorical)", "Gender",
+                                          "Age (categorical)", "Sex",
                                           self.preliminary_dir + "age_vs_gender.png")
 
-        # Count instances by both gender and number of trials
+        # Count instances by both sex and number of trials
         sexes_all = [instance.sex for instance in self.instances]
         OpenFaceDataset.interaction_count(sexes_all, trials_categorical, self.sex_groups, self.trial_id_groups,
-                                          "Gender", "Trial ID (categorical)",
+                                          "Sex", "Trial ID (categorical)",
                                           self.preliminary_dir + "sex_vs_trial.png")
 
         if return_output:

@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import torch
 import torch.nn as nn
+from signal_grad_cam import TorchCamBuilder
 
 from DataUtils.OpenFaceDataset import OpenFaceDataset
 from DataUtils.ToyOpenFaceDataset import ToyOpenFaceDataset
@@ -17,9 +18,7 @@ from Types.SetType import SetType
 
 
 # Class
-class JAISystem:
-    # Define class attributes
-    time_steps = list(range(0, OpenFaceDataset.max_time * OpenFaceDataset.fc + 50, 50))
+class SignalJAISystem:
 
     def __init__(self, working_dir, model_name, trial_n=None, use_cuda=False, is_toy=False, is_boa=False):
         # Initialize attributes
@@ -31,7 +30,6 @@ class JAISystem:
         else:
             results_fold = OpenFaceDataset.results_fold
         self.results_dir = working_dir + results_fold
-        self.results_dir = working_dir + results_fold
         self.models_dir = self.results_dir + OpenFaceDataset.models_fold
         self.jai_dir = self.results_dir + OpenFaceDataset.jai_fold
         self.is_toy = is_toy
@@ -42,30 +40,23 @@ class JAISystem:
             os.mkdir(self.jai_dir + model_name)
 
         self.trainer = NetworkTrainer.load_model(working_dir=working_dir, model_name=model_name, trial_n=trial_n,
-                                                 use_cuda=use_cuda, is_toy=is_toy, is_boa=is_boa)
-        self.trainer.show_model()
+                                                 use_cuda=use_cuda, is_toy=True)
+        self.cam_builder = TorchCamBuilder(model=self.trainer.net, transform_fn=None, time_axs=0,
+                                           class_names=OpenFaceDataset.trial_types, use_gpu=use_cuda, extend_search=True)
 
-    def get_cam(self, data_descr, target_layer_id, target_class, explainer_type, show=False, show_graphs=False,
-                x=None, y=None, cams_in_one_plot=False, normalize_jointly=False):
-        if data_descr is not None:
-            x, y = self.get_item(data_descr)
-        cams, output_prob = self.draw_cam(self.trainer, x, target_layer_id, target_class, explainer_type)
-        if self.is_toy or self.is_boa:
-            initial_pad_dim = OpenFaceDataset.time_stimulus * OpenFaceDataset.fc
-            x = {k: np.concatenate([np.zeros((initial_pad_dim, x[k].shape[1]), np.uint8), v]) for k, v in x.items()}
-            cams = {k: np.concatenate([np.zeros((initial_pad_dim, cams[k].shape[1]), np.uint8), v])
-                    for k, v in cams.items()}
-            if not self.is_boa:
-                final_pad_dim = OpenFaceDataset.max_time * OpenFaceDataset.fc - cams["g"].shape[0]
-                x = {k: np.concatenate([v, np.zeros((final_pad_dim, x[k].shape[1]), np.uint8)]) for k, v in x.items()}
-                cams = {k: np.concatenate([v, np.zeros((final_pad_dim, cams[k].shape[1]), np.uint8)]) for k, v in cams.items()}
-
-        if data_descr is not None:
-            self.display_output(data_descr, target_layer_id, target_class, x, y, explainer_type, cams, output_prob,
-                                show, show_graphs, cams_in_one_plot=cams_in_one_plot,
-                                normalize_jointly=normalize_jointly)
-        else:
-            return cams
+    def get_cam(self, data_description, explainer_types, target_layers_ids, softmax_final):
+        x, y = self.get_item(data_description)
+        data_list = [np.concatenate([xi for xi in x.values()])]
+        data_labels = [y]
+        data_names = [data_description.keys()[0] + "_" + str(data_description.values()[0])]
+        cams, predicted_probs, bar_ranges = self.cam_builder.get_cam(data_list, data_labels=data_labels,
+                                                                     target_classes=target_classes,
+                                                                     explainer_types=explainer_types,
+                                                                     target_layers=target_layers_names,
+                                                                     softmax_final=softmax_final, data_names=data_names,
+                                                                     results_dir_path=results_dir,
+                                                                     data_sampling_freq=OpenFaceDataset.fc)
+        return cams, predicted_probs, bar_ranges
 
     def get_item(self, data_descr):
         pt_id = data_descr["pt"]
@@ -102,7 +93,7 @@ class JAISystem:
             count = 0
 
         if normalize_jointly:
-            maps = JAISystem.normalize_jointly(maps)
+            maps = SignalJAISystem.normalize_jointly(maps)
 
         v_max = 255 if not normalize_jointly else 1
         fig_size = (50, 50) if maps["h"].shape[1] > 1 else (50, 2)
@@ -133,7 +124,7 @@ class JAISystem:
                     plt.title(title)
                     plt.xlabel("Time (s)")
                     plt.ylabel(OpenFaceInstance.dim_names[block])
-                    plt.xticks(JAISystem.time_steps, [str(int(t / OpenFaceDataset.fc)) for t in JAISystem.time_steps],
+                    plt.xticks(SignalJAISystem.time_steps, [str(int(t / OpenFaceDataset.fc)) for t in SignalJAISystem.time_steps],
                                fontsize=8)
                     if map.shape[1] > 1:
                         plt.yticks(range(map.shape[1]), [s.upper() for s in OpenFaceInstance.dim_labels[block]],
@@ -153,8 +144,8 @@ class JAISystem:
                     # Adjust axes
                     axs[count].set_xlabel("Time (s)", loc="right")
                     axs[count].set_title(OpenFaceInstance.dim_names[block])
-                    axs[count].set_xticks(JAISystem.time_steps,
-                                          [str(int(t / OpenFaceDataset.fc)) for t in JAISystem.time_steps],
+                    axs[count].set_xticks(SignalJAISystem.time_steps,
+                                          [str(int(t / OpenFaceDataset.fc)) for t in SignalJAISystem.time_steps],
                                           fontsize=8)
 
                     if map.shape[1] > 1:
@@ -191,7 +182,7 @@ class JAISystem:
                     if explainer_type.value not in os.listdir(directory + "/" + item_name):
                         os.mkdir(name_start)
                     name_start += "conv_" + block + target_layer_id + "__" + str(target_class)
-                    JAISystem.show_graphs(item=x, block=block, map=map, name_start=name_start)
+                    SignalJAISystem.show_graphs(item=x, block=block, map=map, name_start=name_start)
             else:
                 # Project a proper function
                 print("Functionality not available...")
@@ -272,7 +263,7 @@ class JAISystem:
             norm = mcolors.Normalize(vmin=0, vmax=0.1) if len(np.unique(map[:, i])) == 1 and map[0][i] == 0 else None
             plt.scatter(time_steps, x[:, i], c=map[:, i], cmap="jet", marker=".", s=40, norm=norm)
             plt.colorbar()
-            plt.xticks(JAISystem.time_steps, [str(int(t / OpenFaceDataset.fc)) for t in JAISystem.time_steps],
+            plt.xticks(SignalJAISystem.time_steps, [str(int(t / OpenFaceDataset.fc)) for t in SignalJAISystem.time_steps],
                        fontsize=8)
             plt.xlabel("Time (s)")
             plt.title(labels[i].upper())
@@ -283,52 +274,6 @@ class JAISystem:
 
         plt.savefig(name_start + ".png", format="png", bbox_inches="tight", pad_inches=0, dpi=500)
         plt.close()
-
-    @staticmethod
-    def draw_cam(trainer, x, target_layer_id, target_class, explainer_type):
-        net = trainer.net
-        net.set_training(False)
-        net.set_cuda(False)
-        x = {key: x[key].unsqueeze(0) for key in x.keys()}
-        x = {key: (x[key] - trainer.train_mean[key]) / trainer.train_std[key] for key in x.keys()}
-
-        cams = {}
-        for block in x.keys():
-            target_layer = "conv_" + block + target_layer_id
-            if isinstance(net.__dict__[target_layer], nn.Conv2d):
-                is_2d = True
-            elif isinstance(net.__dict__[target_layer], nn.Conv1d):
-                is_2d = False
-            else:
-                is_2d = None
-                print("The CAM method cannot be applied for the selected layer!")
-
-            # Extract activations and gradients
-            net.zero_grad()
-            output, target_activation = net(x, layer_interrupt=target_layer)
-            target_score = output[:, target_class]
-            target_score.backward()
-            target_grad = net.gradients
-
-            # Compute CAM
-            target_activation = target_activation.squeeze(0)
-            target_grad = target_grad.squeeze(0)
-            if explainer_type == ExplainerType.GC:
-                cam = JAISystem.gc_map(target_activation, target_grad, is_2d)
-            elif explainer_type == ExplainerType.HRC:
-                cam = JAISystem.hrc_map(target_activation, target_grad)
-            else:
-                print("CAM generation method not implemented!")
-                cam = None
-            cam = cam.cpu().detach().numpy()
-            cam = cam.transpose()
-            cam = JAISystem.adjust_map(cam, x[block], is_2d)
-            cams[block] = cam
-
-        output_prob = torch.softmax(output, dim=1)
-        output_prob = output_prob[:, target_class]
-        output_prob = output_prob.detach().numpy()[0]
-        return cams, output_prob
 
     @staticmethod
     def gc_map(target_activation, target_grad, is_2d=True):
@@ -344,41 +289,6 @@ class JAISystem:
 
         cam = torch.relu(cam)
         return cam
-
-    @staticmethod
-    def hrc_map(target_activation, target_grad):
-        for i in range(target_activation.shape[0]):
-            target_activation[i] *= target_grad[i]
-        cam = torch.sum(target_activation, dim=0)
-
-        cam = torch.relu(cam)
-        return cam
-
-    @staticmethod
-    def adjust_map(map, x, is_2d=True):
-        map = JAISystem.normalize_map(map)
-
-        if is_2d:
-            dim_reshape = (x.shape[2], x.shape[1])
-        else:
-            dim_reshape = (1, x.shape[1])
-        map = cv2.resize(map, dim_reshape)
-        return map
-
-    @staticmethod
-    def normalize_map(map):
-        maximum = np.max(map)
-        minimum = np.min(map)
-        if maximum == minimum:
-            if maximum == 1:
-                map = np.ones(map.shape)
-            else:
-                map = np.zeros(map.shape)
-        else:
-            map = (map - minimum) / (maximum - minimum)
-
-        map = np.uint8(255 * map)
-        return map
 
     @staticmethod
     def normalize_jointly(maps):
@@ -399,25 +309,25 @@ if __name__ == "__main__":
     use_cuda1 = False
     is_toy1 = True
     is_boa1 = False
-    system1 = JAISystem(working_dir=working_dir1, model_name=model_name1, trial_n=trial_n1, is_toy=is_toy1,
-                        is_boa=is_boa1)
+    system1 = SignalJAISystem(working_dir=working_dir1, model_name=model_name1, trial_n=trial_n1, is_toy=is_toy1,
+                              is_boa=is_boa1)
 
     # Explain some items
     data_descriptions = [{"pt": "bam2_004", "trial": 7}, {"pt": "bam2_004", "trial": 9},
                          {"pt": "bam2_010", "trial": 16}, {"pt": "bam2_020", "trial": 32}]
     target_layer_id1 = "2"
     target_classes = [0, 1]
-    explainer_types = [ExplainerType.GC, ExplainerType.HRC]
-    show1 = False
+    explainer_types1 = [ExplainerType.GC, ExplainerType.HRC]
+    softmax_final1 = True
+    '''show1 = False
     show_graphs1 = True
-    cams_in_one_plot1 = False
-    normalize_jointly1 = False
+    cams_in_one_plot1 = True
+    normalize_jointly1 = True'''
     for data_descr1 in data_descriptions:
-        for target_class1 in target_classes:
-            for explainer_type1 in explainer_types:
-                system1.get_cam(data_descr=data_descr1, target_layer_id=target_layer_id1, target_class=target_class1,
-                                explainer_type=explainer_type1, show=show1, show_graphs=show_graphs1, 
-                                cams_in_one_plot=cams_in_one_plot1, normalize_jointly=normalize_jointly1)
+        cams, predicted_probs, bar_ranges = system1.get_cam(data_description=data_descr1,
+                                                            explainer_types=explainer_types1,
+                                                            target_layers_ids=target_layer_id1,
+                                                            softmax_final=softmax_final1)
 
     # Average children explanations
     '''set_types = [SetType.VAL, SetType.TEST]

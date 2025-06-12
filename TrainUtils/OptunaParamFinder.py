@@ -155,7 +155,7 @@ class OptunaParamFinder:
             "n_extra_fc_final": int(trial.suggest_int("n_extra_fc_final", 1, 3, step=1)),
             "optimizer": trial.suggest_categorical("optimizer", ["RMSprop", "Adam"]),
             "lr": np.round(10 ** (-1 * trial.suggest_int("lr", 1, 5, step=1)), 4),
-            "batch_size": int(2 ** (trial.suggest_int("batch_size", 5, 6, step=1))),
+            "batch_size": int(2 ** (trial.suggest_int("batch_size", 4, 5, step=1))),
         }
 
         # Define seeds
@@ -193,10 +193,10 @@ class OptunaParamFinder:
                 val_metric, train_metric = val_metric
         except TrialPruned:
             raise
-        '''except Exception as e:
+        except Exception as e:
             print(f"An error occurred: {e}")
             val_metric = 0
-            train_metric = 0'''
+            train_metric = 0
 
         if not self.double_output:
             return val_metric
@@ -218,7 +218,7 @@ class OptunaParamFinder:
                              self.study.trials[-1].distributions.items()}
             filepath = self.results_dir + distr_file
             f = open(filepath, "w") if self.s3 is None else self.s3.open(filepath, "w")
-            json_file = json.dump(distributions, f, indent=4)
+            _ = json.dump(distributions, f, indent=4)
             print("Study stored!")
 
         if not self.double_output:
@@ -324,6 +324,7 @@ if __name__ == "__main__":
     separated_inputs1 = True
     is_boa1 = False
     is_toy1 = True
+    use_cuda1 = True
 
     # Load data
     train_data1 = OpenFaceDataset.load_dataset(working_dir=working_dir1, dataset_name="training_set", is_toy=is_toy1,
@@ -334,14 +335,14 @@ if __name__ == "__main__":
                                               is_boa=is_boa1)
 
     # Define Optuna model
-    n_trials1 = 10
+    n_trials1 = 39
     output_metric1 = "mcc"
-    double_output1 = False
+    double_output1 = True
     optuna1 = OptunaParamFinder(model_name=model_name1, working_dir=working_dir1, task_type=task_type1,
                                 net_type=net_type1, epochs=epochs1, batch_size=batch_size1, val_epochs=val_epochs1,
                                 n_trials=n_trials1, separated_inputs=separated_inputs1, output_metric=output_metric1,
                                 double_output=double_output1, is_boa=is_boa1, is_toy=is_toy1, train_data=train_data1,
-                                val_data=val_data1, test_data=test_data1)
+                                val_data=val_data1, test_data=test_data1, use_cuda=use_cuda1)
 
     # Run search
     optuna1.initialize_study()

@@ -149,20 +149,26 @@ class StatsHolder:
             extra_var = extra_feature_name.split(" - ")
             extra_var = extra_var[-1].upper()
         extra_var += " CODE"
+        missing = []
         for i in range(len(stat_list)):
             stats = stat_list[i]
-            d = dict((StatsHolder.comparable_stats[k], stats.__dict__[k]) for k in desired_stats)
-            df = pd.DataFrame(data=d)
-            df = pd.melt(df, value_vars=value_vars, var_name="Metric type", value_name="Value")
-            df[extra_var] = i
-            dfs.append(df)
+            if stats is not None:
+                d = dict((StatsHolder.comparable_stats[k], stats.__dict__[k]) for k in desired_stats)
+                df = pd.DataFrame(data=d)
+                df = pd.melt(df, value_vars=value_vars, var_name="Metric type", value_name="Value")
+                df[extra_var] = i
+                dfs.append(df)
+            else:
+                missing.append(i)
+
         df = pd.concat(dfs)
-        if 2 not in np.unique(df[extra_var]):
-            df1 = df.copy()
-            df1 = df1[df1[extra_var] == 0]
-            df1.loc[:, "Value"] = 0.
-            df1.loc[:, extra_var] = 2
-            df = pd.concat([df, df1])
+        if len(missing) > 0:
+            for m in missing:
+                df1 = df.copy()
+                # df1 = df1[df1[extra_var] == 0]
+                df1.loc[:, "Value"] = 0.
+                df1.loc[:, extra_var] = m
+                df = pd.concat([df, df1])
 
         # Rename variables
         if not all_stats:
@@ -172,6 +178,7 @@ class StatsHolder:
 
         # Draw bar plot
         plt.figure(figsize=fig_size)
+        n_hue_levels = df[extra_var].nunique()
         if desired_stats is not None and len(desired_stats) == 1:
             ax = sns.barplot(x=extra_var, y="Value", data=df.dropna(), width=1,
                              errorbar=("ci", 100 * (1 - alpha_ci)), err_kws={"linewidth": 1}, capsize=0.2)
@@ -179,7 +186,7 @@ class StatsHolder:
         else:
             ax = sns.barplot(x="Metric type", y="Value", data=df, hue=extra_var, width=0.5,
                              errorbar=("ci", 100 * (1 - alpha_ci)), err_kws={"linewidth": 1.5}, capsize=0.3,
-                             palette=sns.color_palette("dark:#5A9_r", as_cmap=True))
+                             palette=sns.color_palette("dark:#5A9_r", n_colors=n_hue_levels))
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
         plt.ylim([0, 1])
@@ -205,7 +212,7 @@ class StatsHolder:
             plt.xticks(range(0, np.max(df[extra_var]), 5))
         else:
             ax = sns.boxplot(x="Metric type", y="Value", data=df, hue=extra_var,
-                             palette=sns.color_palette("dark:#5A9_r", as_cmap=True))
+                             palette=sns.color_palette("dark:#5A9_r", n_colors=n_hue_levels))
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
         plt.ylim([-0.05, 1.05])
@@ -222,7 +229,7 @@ class StatsHolder:
             plt.xticks(range(0, np.max(df[extra_var]), 5))
         else:
             ax = sns.violinplot(x="Metric type", y="Value", data=df, hue=extra_var,
-                                palette=sns.color_palette("dark:#5A9_r", as_cmap=True))
+                                palette=sns.color_palette("dark:#5A9_r", n_colors=n_hue_levels))
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
         plt.ylim([-0.05, 1.05])
@@ -234,7 +241,7 @@ class StatsHolder:
 
     @staticmethod
     def statistically_compare_stats(stat_list, extra_feature_name, set_type, path, checking_patterns=None,
-                                    alpha=0.05):
+                                    alpha=0.05, n_rep=100):
         if "histograms" not in os.listdir(path):
             os.mkdir(path + "histograms/")
         path += "histograms/"
@@ -242,7 +249,13 @@ class StatsHolder:
 
         for stat in StatsHolder.comparable_stats.keys():
             stat_name = StatsHolder.comparable_stats[stat]
-            vals = [stat_list[i].__dict__[stat] for i in range(len(stat_list))]
+            vals = []
+            for i in range(len(stat_list)):
+                stat_elem = stat_list[i]
+                if stat_elem is not None:
+                    vals.append(stat_elem.__dict__[stat])
+                else:
+                    vals.append(list(np.zeros(n_rep)))
 
             # Assess normality
             plt.figure(figsize=(10, 5))
@@ -261,21 +274,10 @@ class StatsHolder:
             plt.close()
 
             for ind1, ind2 in checking_patterns:
-                flag = False
-                try:
-                    val1 = vals[ind1]
-                    normality1 = normality[ind1]
-                except IndexError:
-                    flag = True
-                    normality1 = False
-                try:
-                    val2 = vals[ind2]
-                    normality2 = normality[ind2]
-                except IndexError:
-                    val2 = np.zeros_like(val1)
-                    normality2 = False
-                if flag:
-                    val1 = vals[ind1]
+                val1 = vals[ind1]
+                normality1 = normality[ind1]
+                val2 = vals[ind2]
+                normality2 = normality[ind2]
 
                 # Compare variances
                 same_var = StatsHolder.compare_variance(stat_name + " (" + extra_feature_name + " = " + str(ind1) +
@@ -283,7 +285,7 @@ class StatsHolder:
                                                         val2, [normality1, normality2], alpha)
 
                 # Compare means
-                h = StatsHolder.compare_mean(stat_name + " (" + extra_feature_name + " = " + str(ind1) + " vs. " +
+                _ = StatsHolder.compare_mean(stat_name + " (" + extra_feature_name + " = " + str(ind1) + " vs. " +
                                              extra_feature_name + " = " + str(ind2) + ")", val1, val2,
                                             [normality1, normality2], same_var, alpha)
 

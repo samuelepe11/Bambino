@@ -83,12 +83,12 @@ class BoaOpenFaceDataset(ToyOpenFaceDataset):
                                           "Age (categorical)", "Sound",
                                           self.preliminary_dir + "age_vs_audio.png")
 
-        # Count instances by both gender and speaker
-        OpenFaceDataset.interaction_count(sexes_all, speakers, self.sex_groups, self.speaker_groups, "Gender",
+        # Count instances by both sex and speaker
+        OpenFaceDataset.interaction_count(sexes_all, speakers, self.sex_groups, self.speaker_groups, "Sex",
                                           "Speaker", self.preliminary_dir + "sex_vs_speaker.png")
 
-        # Count instances by both gender and sound
-        OpenFaceDataset.interaction_count(sexes_all, audios, self.sex_groups, self.audio_groups, "Gender",
+        # Count instances by both sex and sound
+        OpenFaceDataset.interaction_count(sexes_all, audios, self.sex_groups, self.audio_groups, "Sex",
                                           "Sound", self.preliminary_dir + "sex_vs_audio.png")
 
         # Count instances by both speaker and number of trials
@@ -121,20 +121,20 @@ if __name__ == "__main__":
     dataset1 = BoaOpenFaceDataset(dataset_name=dataset_name1, working_dir=working_dir1, file_name=file_name1)
 
     # Compute statistics
-    dataset1.compute_statistics()
+    # dataset1.compute_statistics()
 
     # Remove short sequences
-    dataset1.remove_short_sequences()
+    # dataset1.remove_short_sequences()
 
     # Divide dataset
     train_perc1 = 0.7
-    dataset1.split_dataset(train_perc=train_perc1)
+    # dataset1.split_dataset(train_perc=train_perc1)
 
     # Load training set
     print()
     train_set1 = OpenFaceDataset.load_dataset(working_dir=working_dir1, dataset_name="training_set", is_boa=True)
-    train_set1.compute_statistics()
-    train_set1.store_dataset()
+    # train_set1.compute_statistics()
+    # train_set1.store_dataset()
 
     # Load training set
     print()

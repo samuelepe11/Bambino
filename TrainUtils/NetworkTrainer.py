@@ -12,8 +12,8 @@ from torch.utils.data import DataLoader
 from torcheval.metrics.functional import multiclass_confusion_matrix
 from sklearn.metrics import roc_auc_score
 from pandas import DataFrame
-from calfram.calibrationframework import select_probability, reliabilityplot, calibrationdiagnosis, classwise_calibration
-from collections import Counter
+from calfram.calibrationframework import select_probability, reliabilityplot, calibrationdiagnosis, \
+    classwise_calibration
 
 from DataUtils.OpenFaceDataset import OpenFaceDataset
 from DataUtils.ToyOpenFaceDataset import ToyOpenFaceDataset
@@ -101,7 +101,8 @@ class NetworkTrainer:
         # Load datasets
         if train_data is None:
             self.train_data = OpenFaceDataset.load_dataset(working_dir=self.working_dir, dataset_name="training_set",
-                                                           task_type=self.task_type, is_boa=is_boa, is_toy=is_toy, s3=s3)
+                                                           task_type=self.task_type, is_boa=is_boa, is_toy=is_toy,
+                                                           s3=s3)
         else:
             self.train_data = train_data
         self.train_loader, self.train_dim = self.load_data(self.train_data, shuffle=True)
@@ -184,7 +185,7 @@ class NetworkTrainer:
                     if trial_n is None:
                         filepath = self.results_dir + "training_curves.jpg"
                     else:
-                        filepath = self.results_dir + "trial_" + str(trial_n) + "_curves.jpg"
+                        filepath = self.results_dir + "trial_" + str(trial_n - 1) + "_curves.jpg"
                     if self.s3 is not None:
                         filepath = self.s3.open(filepath, "wb")
                     plt.savefig(filepath)
@@ -298,10 +299,11 @@ class NetworkTrainer:
         ages = []
         trial_ids = []
         trial_ids_no_categorical = []
-        if self.is_boa:
+        if self.is_toy:
             sexes = []
-            audios = []
-            speakers = []
+            if self.is_boa:
+                audios = []
+                speakers = []
         loss = 0
         net.set_training(False)
         with torch.no_grad():
@@ -322,10 +324,11 @@ class NetworkTrainer:
                     ages.append(extra_info[0])
                     trial_ids.append(extra_info[1])
                     trial_ids_no_categorical.append(extra_info[2])
-                    if self.is_boa:
+                    if self.is_toy:
                         sexes.append(extra_info[3])
-                        audios.append(extra_info[4])
-                        speakers.append(extra_info[5])
+                        if self.is_boa:
+                            audios.append(extra_info[4])
+                            speakers.append(extra_info[5])
 
             y_prob = torch.concat(y_prob)
             y_true = torch.concat(y_true)
@@ -334,6 +337,11 @@ class NetworkTrainer:
                 ages = torch.concat(ages)
                 trial_ids = torch.concat(trial_ids)
                 trial_ids_no_categorical = torch.concat(trial_ids_no_categorical)
+                if self.is_toy:
+                    sexes = torch.concat(sexes)
+                    if self.is_boa:
+                        audios = torch.concat(audios)
+                        speakers = torch.concat(speakers)
 
             loss /= dim
             acc = torch.sum(y_true == y_pred) / dim
@@ -345,7 +353,7 @@ class NetworkTrainer:
         if show_cm:
             img_path = self.results_dir + cm_name + ".jpg"
             if self.s3 is not None:
-                imgpath = self.s3.open(imgpath, "wb")
+                img_path = self.s3.open(img_path, "wb")
         else:
             img_path = None
         self.__dict__[cm_name] = NetworkTrainer.compute_multiclass_confusion_matrix(y_true, y_pred, self.classes,
@@ -384,21 +392,68 @@ class NetworkTrainer:
                                             "trial no categorical", checking_patterns=None,
                                             desired_stats=[desired_stat])
             print("---------------------------------------------------------------------------------------------------")
+            if self.is_toy:
+                # Extra analyses for the TOY problem
+                self.perform_extra_analysis(y_true, y_prob, y_pred, sexes, set_type, desired_class, "sex",
+                                            checking_patterns=[(0, 1)])
+                print("---------------------------------------------------------------------------------------------------")
+                for age in np.unique(ages):
+                    ind = ages == age
+                    y_true_i = y_true[ind]
+                    y_prob_i = y_prob[ind, :]
+                    y_pred_i = y_pred[ind]
+                    sexes_i = sexes[ind]
+                    self.perform_extra_analysis(y_true_i, y_prob_i, y_pred_i, sexes_i, set_type, desired_class,
+                                                "age = " + str(age) + " - sex", checking_patterns=[(0, 1)])
+                print("---------------------------------------------------------------------------------------------------")
+                for trial in np.unique(trial_ids):
+                    ind = trial_ids == trial
+                    y_true_i = y_true[ind]
+                    y_prob_i = y_prob[ind, :]
+                    y_pred_i = y_pred[ind]
+                    sexes_i = sexes[ind]
+                    self.perform_extra_analysis(y_true_i, y_prob_i, y_pred_i, sexes_i, set_type, desired_class,
+                                                "trial = " + str(trial) + " - sex", checking_patterns=[(0, 1)])
+                print("---------------------------------------------------------------------------------------------------")
+                for sex in np.unique(sexes):
+                    ind = sexes == sex
+                    y_true_i = y_true[ind]
+                    y_prob_i = y_prob[ind, :]
+                    y_pred_i = y_pred[ind]
+                    ages_i = ages[ind]
+                    self.perform_extra_analysis(y_true_i, y_prob_i, y_pred_i, ages_i, set_type, desired_class,
+                                                "sex = " + str(sex) + " - age",
+                                                checking_patterns=[(1, 0), (1, 2), (0, 2)])
+                print("---------------------------------------------------------------------------------------------------")
+                for sex in np.unique(sexes):
+                    ind = sexes == sex
+                    y_true_i = y_true[ind]
+                    y_prob_i = y_prob[ind, :]
+                    y_pred_i = y_pred[ind]
+                    trial_ids_i = trial_ids[ind]
+                    self.perform_extra_analysis(y_true_i, y_prob_i, y_pred_i, trial_ids_i, set_type, desired_class,
+                                                "sex = " + str(sex) + " - trial",
+                                                checking_patterns=[(0, 2), (0, 1), (1, 2)])
+                print("---------------------------------------------------------------------------------------------------")
             if self.is_boa:
-                # ADD HERE EXTRA ANALYSIS FOR BOAprint
+                # ADD HERE EXTRA ANALYSIS FOR BOA
                 print("---------------------------------------------------------------------------------------------------")
 
         return stats_holder
 
     def perform_extra_analysis(self, y_true, y_prob, y_pred, analyzed_var, set_type, desired_class, analysis_criterion,
-                               checking_patterns, desired_stats=None):
+                               checking_patterns, desired_stats=None, n_rep=100):
         analysis_criterion_short = analysis_criterion.replace("=", "")
         analysis_criterion_short = analysis_criterion_short.replace(" ", "")
         path = self.results_dir + analysis_criterion_short + "/"
         if analysis_criterion_short not in os.listdir(self.results_dir):
             os.mkdir(path)
 
-        stat_list = []
+        if checking_patterns is not None:
+            n_unique_vals = len(np.unique([[v for v in checking_pattern] for checking_pattern in checking_patterns]))
+            stat_list = [None for _ in range(n_unique_vals)]
+        else:
+            stat_list = []
         for val in np.unique(analyzed_var):
             # Extract data
             ind = analyzed_var == val
@@ -410,8 +465,11 @@ class NetworkTrainer:
             pred = y_pred[ind]
 
             # Get bootstrap distributions
-            boot_stats = self.get_bootstrapped_metrics(true, pred, prob, desired_class=desired_class)
-            stat_list.append(boot_stats)
+            boot_stats = self.get_bootstrapped_metrics(true, pred, prob, desired_class=desired_class, n_rep=n_rep)
+            if checking_patterns is not None:
+                stat_list[val] = boot_stats
+            else:
+                stat_list.append(boot_stats)
 
             # Compute statistics
             stats = self.compute_stats(true, pred, None, None, desired_class=desired_class,
@@ -429,7 +487,8 @@ class NetworkTrainer:
                                        path=path, desired_stats=desired_stats)
         if checking_patterns is not None:
             StatsHolder.statistically_compare_stats(stat_list=stat_list, extra_feature_name=analysis_criterion,
-                                                    set_type=set_type, path=path, checking_patterns=checking_patterns)
+                                                    set_type=set_type, path=path, checking_patterns=checking_patterns,
+                                                    n_rep=n_rep)
 
     def assess_calibration(self, y_true, y_prob, y_pred, set_type):
         y_true = y_true.cpu().numpy()
@@ -489,7 +548,8 @@ class NetworkTrainer:
             NetworkTrainer.show_calibration_table(train_stats, "training")
 
         if perform_extra_analysis:
-            print("\n=======================================================================================================\n")
+            print(
+                "\n=======================================================================================================\n")
         val_stats = self.test(set_type=SetType.VAL, show_cm=show_cm, desired_class=desired_class,
                               assess_calibration=assess_calibration, perform_extra_analysis=perform_extra_analysis)
         print("Validation loss = " + str(np.round(val_stats.loss, 5)) + " - Validation accuracy = " +
@@ -502,7 +562,8 @@ class NetworkTrainer:
 
         if show_test:
             if perform_extra_analysis:
-                print("\n=======================================================================================================\n")
+                print(
+                    "\n=======================================================================================================\n")
             test_stats = self.test(set_type=SetType.TEST, show_cm=show_cm, desired_class=desired_class,
                                    assess_calibration=assess_calibration, perform_extra_analysis=perform_extra_analysis)
             print("Test loss = " + str(np.round(test_stats.loss, 5)) + " - Test accuracy = " +
@@ -560,6 +621,11 @@ class NetworkTrainer:
         ages = []
         trial_ids = []
         trial_ids_no_categorical = []
+        if self.is_toy:
+            sexes = []
+            if self.is_boa:
+                audios = []
+                speakers = []
         for instance in data.instances:
             yt = torch.Tensor([instance.trial_type])
             y_true.append(yt)
@@ -568,17 +634,29 @@ class NetworkTrainer:
             y_pred.append(yp)
 
             if perform_extra_analysis:
-                age = OpenFaceInstance.categorize_age(instance.age)
+                age = OpenFaceInstance.categorize_age(instance.age, is_boa=self.is_boa)
                 ages.append(torch.Tensor([age]).to(torch.long))
                 trial_ids_no_categorical.append(torch.Tensor([instance.trial_id]).to(torch.long))
                 trial_id = OpenFaceInstance.categorize_trial_id(instance.trial_id, data.trial_id_stats)
                 trial_ids.append(torch.Tensor([trial_id]).to(torch.long))
+                if self.is_toy:
+                    sexes.append(torch.Tensor([instance.sex]).to(torch.long))
+                    if self.is_boa:
+                        audio = list(self.train_data.audio_groups).index(instance.audio)
+                        audios.append(torch.Tensor([audio]).to(torch.long))
+                        speaker = instance.speaker if instance.speaker is not None else -1
+                        speakers.append(torch.Tensor([speaker]).to(torch.long))
         y_true = torch.concat(y_true)
         y_pred = torch.concat(y_pred)
         if perform_extra_analysis:
             ages = torch.concat(ages)
             trial_ids = torch.concat(trial_ids)
             trial_ids_no_categorical = torch.concat(trial_ids_no_categorical)
+            if self.is_toy:
+                sexes = torch.concat(sexes)
+                if self.is_boa:
+                    audios = torch.concat(audios)
+                    speakers = torch.concat(speakers)
 
         # Get evaluation metrics
         acc = torch.sum(y_true == y_pred) / dim
@@ -588,8 +666,7 @@ class NetworkTrainer:
         # Compute multiclass confusion matrix
         y_true = y_true.to(torch.int64)
         y_pred = y_pred.to(torch.int64)
-        img_path = (self.working_dir + OpenFaceDataset.results_fold + OpenFaceDataset.models_fold +
-                    "clinician_performance/" + set_type.value
+        img_path = (self.working_dir + self.results_fold + self.models_fold + "clinician_performance/" + set_type.value
                     + "_cm.jpg")
         data.clinician_cm = NetworkTrainer.compute_multiclass_confusion_matrix(y_true, y_pred,
                                                                                OpenFaceDataset.trial_types,
@@ -619,13 +696,56 @@ class NetworkTrainer:
                 y_pred_i = y_pred[ind]
                 ages_i = ages[ind]
                 self.perform_extra_analysis(y_true_i, None, y_pred_i, ages_i, set_type, desired_class,
-                                            "trial = " + str(trial) + " - age", checking_patterns=[(1, 0), (1, 2), (0, 2)])
+                                            "trial = " + str(trial) + " - age",
+                                            checking_patterns=[(1, 0), (1, 2), (0, 2)])
             print("---------------------------------------------------------------------------------------------------")
             for desired_stat in ["acc", "f1"]:
                 self.perform_extra_analysis(y_true, None, y_pred, trial_ids_no_categorical, set_type,
                                             desired_class, "trial no categorical", checking_patterns=None,
                                             desired_stats=[desired_stat])
             print("---------------------------------------------------------------------------------------------------")
+            if self.is_toy:
+                # Extra analyses for the TOY problem
+                self.perform_extra_analysis(y_true, None, y_pred, sexes, set_type, desired_class, "sex",
+                                            checking_patterns=[(0, 1)])
+                print("---------------------------------------------------------------------------------------------------")
+                for age in np.unique(ages):
+                    ind = ages == age
+                    y_true_i = y_true[ind]
+                    y_pred_i = y_pred[ind]
+                    sexes_i = sexes[ind]
+                    self.perform_extra_analysis(y_true_i, None, y_pred_i, sexes_i, set_type, desired_class,
+                                                "age = " + str(age) + " - sex", checking_patterns=[(0, 1)])
+                print("---------------------------------------------------------------------------------------------------")
+                for trial in np.unique(trial_ids):
+                    ind = trial_ids == trial
+                    y_true_i = y_true[ind]
+                    y_pred_i = y_pred[ind]
+                    sexes_i = sexes[ind]
+                    self.perform_extra_analysis(y_true_i, None, y_pred_i, sexes_i, set_type, desired_class,
+                                                "trial = " + str(trial) + " - sex", checking_patterns=[(0, 1)])
+                print("---------------------------------------------------------------------------------------------------")
+                for sex in np.unique(sexes):
+                    ind = sexes == sex
+                    y_true_i = y_true[ind]
+                    y_pred_i = y_pred[ind]
+                    ages_i = ages[ind]
+                    self.perform_extra_analysis(y_true_i, None, y_pred_i, ages_i, set_type, desired_class,
+                                                "sex = " + str(sex) + " - age",
+                                                checking_patterns=[(1, 0), (1, 2), (0, 2)])
+                print("---------------------------------------------------------------------------------------------------")
+                for sex in np.unique(sexes):
+                    ind = sexes == sex
+                    y_true_i = y_true[ind]
+                    y_pred_i = y_pred[ind]
+                    trial_ids_i = trial_ids[ind]
+                    self.perform_extra_analysis(y_true_i, None, y_pred_i, trial_ids_i, set_type, desired_class,
+                                                "sex = " + str(sex) + " - trial",
+                                                checking_patterns=[(0, 2), (0, 1), (1, 2)])
+                print("---------------------------------------------------------------------------------------------------")
+            if self.is_boa:
+                # ADD HERE EXTRA ANALYSIS FOR BOA
+                print("---------------------------------------------------------------------------------------------------")
 
         # Show performance
         print(set_type.value.upper() + ": Clinician accuracy = " + str(np.round(data.clinician_stats.acc * 100, 7)) +
@@ -872,25 +992,24 @@ if __name__ == "__main__":
     # params1 = {"n_conv_neurons": 1536, "n_conv_layers": 1, "kernel_size": 7, "hidden_dim": 64, "p_drop": 0.5,
     #            "n_extra_fc_after_conv": 1, "n_extra_fc_final": 1, "optimizer": "RMSprop", "lr": 0.008, "batch_size": 64}  # stimulus_conv1
     params1 = {"n_conv_neurons": 256, "n_conv_layers": 1, "kernel_size": 3, "hidden_dim": 32, "p_drop": 0.2,
-               "n_extra_fc_after_conv": 0, "n_extra_fc_final": 1, "optimizer": "RMSprop", "lr": 0.01, "batch_size": 64}  # stimulus_conv2
+               "n_extra_fc_after_conv": 0, "n_extra_fc_final": 1, "optimizer": "RMSprop", "lr": 0.01,
+               "batch_size": 64}  # stimulus_conv2
     trainer1 = NetworkTrainer(model_name=model_name1, working_dir=working_dir1, task_type=task_type1,
                               net_type=net_type1, epochs=epochs1, val_epochs=val_epochs1, params=params1,
                               use_cuda=use_cuda1, separated_inputs=separated_inputs1)
 
     # Show clinician performance
-    trainer1.show_clinician_stim_performance(set_type=SetType.TRAIN, desired_class=desired_class1,
-                                             perform_extra_analysis=perform_extra_analysis1)
-    print("\n=======================================================================================================\n")
-    trainer1.show_clinician_stim_performance(set_type=SetType.VAL, desired_class=desired_class1,
-                                             perform_extra_analysis=perform_extra_analysis1)
-    print("\n=======================================================================================================\n")
-    trainer1.show_clinician_stim_performance(set_type=SetType.TEST, desired_class=desired_class1,
-                                             perform_extra_analysis=perform_extra_analysis1)
+    for set_type1 in SetType:
+        trainer1.show_clinician_stim_performance(set_type=set_type1, desired_class=desired_class1,
+                                                 perform_extra_analysis=perform_extra_analysis1)
+        print(
+            "\n=======================================================================================================\n")
+
     # Train model
     print()
     print()
     # trainer1.train(show_epochs=True)
-    
+
     # Evaluate model
     '''trainer1 = NetworkTrainer.load_model(working_dir=working_dir1, model_name=model_name1, trial_n=trial_n1,
                                          use_cuda=use_cuda1)

@@ -8,6 +8,7 @@ from DataUtils.ToyOpenFaceDataset import ToyOpenFaceDataset
 from DataUtils.OpenFaceInstance import OpenFaceInstance
 from Types.TaskType import TaskType
 from Types.NetType import NetType
+from Types.SetType import SetType
 from DataUtils.OpenFaceDataset import OpenFaceDataset
 
 
@@ -48,17 +49,18 @@ if __name__ == "__main__":
 
     # Define variables
     working_dir1 = "./../../"
-    model_name1 = "stimulus_conv1d"
+    model_name1 = "clinician_performance"
+    # model_name1 = "stimulus_conv1d_optuna"
     net_type1 = NetType.CONV1D
     epochs1 = 2
-    trial_n1 = None
+    trial_n1 = 39
     val_epochs1 = 10
     use_cuda1 = False
     separated_inputs1 = True
     assess_calibration1 = True
-    perform_extra_analysis1 = False
+    perform_extra_analysis1 = True
     desired_class1 = 1
-    show_test1 = False
+    show_test1 = True
 
     # Load data
     train_data1 = OpenFaceDataset.load_dataset(working_dir=working_dir1, dataset_name="training_set", is_toy=True)
@@ -73,12 +75,18 @@ if __name__ == "__main__":
                                  separated_inputs=separated_inputs1, train_data=train_data1, val_data=val_data1, 
                                  test_data=test_data1)
 
+    # Show clinician performance
+    for set_type1 in SetType:
+        trainer1.show_clinician_stim_performance(set_type=set_type1, desired_class=desired_class1,
+                                                 perform_extra_analysis=perform_extra_analysis1)
+        print("\n=======================================================================================================\n")
+
     # Train model
-    trainer1.train(show_epochs=True)
+    # trainer1.train(show_epochs=True)
     
     # Evaluate model
-    trainer1 = ToyNetworkTrainer.load_model(working_dir=working_dir1, model_name=model_name1, trial_n=trial_n1,
+    '''trainer1 = ToyNetworkTrainer.load_model(working_dir=working_dir1, model_name=model_name1, trial_n=trial_n1,
                                             use_cuda=use_cuda1, is_toy=True)
     trainer1.summarize_performance(show_test=show_test1, show_process=True, desired_class=desired_class1, show_cm=True,
                                    assess_calibration=assess_calibration1,
-                                   perform_extra_analysis=perform_extra_analysis1)
+                                   perform_extra_analysis=perform_extra_analysis1)'''

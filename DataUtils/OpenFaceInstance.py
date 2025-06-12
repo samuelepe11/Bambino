@@ -79,11 +79,15 @@ class OpenFaceInstance:
                                    for i in face_ind], 1)
 
         # Cut windows from stimulus presentation to reward display
-        if is_toy and not is_boa:
-            timestamp = trial_data[:, 10]
-            max_time = trial_data[0, 15]
-            max_time = max_time if not np.isnan(max_time) else np.inf
-            windows_inds = (timestamp >= 0) & (timestamp < max_time)
+        if is_toy:
+            time_ind = 10 if not is_boa else 9
+            timestamp = trial_data[:, time_ind]
+            windows_inds = (timestamp >= -1e-6)
+            if not is_boa:
+                max_time = trial_data[0, 15]
+                max_time = max_time if not np.isnan(max_time) else np.inf
+                windows_inds = windows_inds & (timestamp < max_time)
+                
             self.gaze_info = self.gaze_info[windows_inds, :]
             self.head_info = self.head_info[windows_inds, :]
             self.face_info = self.face_info[windows_inds, :]

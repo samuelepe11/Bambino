@@ -204,9 +204,10 @@ class OpenFaceDataset(Dataset):
         # Count sequence duration
         durations = [instance.face_info.shape[0] / OpenFaceDataset.fc for instance in self.instances]
         print("Mean sequence duration = ", str(np.mean(durations)) + "s", "(std = " + str(np.std(durations)) + ")")
+        threshold = 300 if not self.is_boa else 250
         for instance in self.instances:
             length = instance.face_info.shape[0]
-            if (not self.is_toy or self.is_boa) and length < 300:
+            if (not self.is_toy or self.is_boa) and length < threshold:
                 print("Patient", instance.pt_id, "(trial " + str(instance.trial_id) + ") has", length, "data points")
 
         if return_output:
@@ -214,8 +215,9 @@ class OpenFaceDataset(Dataset):
 
     def remove_short_sequences(self):
         removable = []
+        threshold = 300 if not self.is_boa else 250
         for instance in self.instances:
-            if instance.face_info.shape[0] < 300:
+            if instance.face_info.shape[0] < threshold:
                 removable.append(instance)
 
         for rm in removable:
