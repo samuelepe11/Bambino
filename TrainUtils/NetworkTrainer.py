@@ -360,7 +360,8 @@ class NetworkTrainer:
                                                                                     img_path)
 
         if assess_calibration:
-            stats_holder.calibration_results = self.assess_calibration(y_true, y_prob, y_pred, set_type)
+            descr = [instance.pt_id + "__" + str(round(instance.trial_id, 1)) for instance in data.instances]
+            stats_holder.calibration_results = self.assess_calibration(y_true, y_prob, y_pred, set_type, descr=descr)
 
         if perform_extra_analysis:
             self.perform_extra_analysis(y_true, y_prob, y_pred, ages, set_type, desired_class, "age",
@@ -490,7 +491,7 @@ class NetworkTrainer:
                                                     set_type=set_type, path=path, checking_patterns=checking_patterns,
                                                     n_rep=n_rep)
 
-    def assess_calibration(self, y_true, y_prob, y_pred, set_type):
+    def assess_calibration(self, y_true, y_prob, y_pred, set_type, descr=None):
         y_true = y_true.cpu().numpy()
         y_prob = y_prob.cpu().numpy()
         y_pred = y_pred.cpu().numpy()
@@ -499,6 +500,10 @@ class NetworkTrainer:
         # Store results file
         data = np.concatenate((y_true[:, np.newaxis], y_pred[:, np.newaxis], y_prob), axis=1)
         titles = ["y_true", "y_pred"] + ["y_prob" + str(i) for i in range(y_prob.shape[1])]
+        if descr is not None:
+            descr = np.asarray(descr)
+            data = np.concatenate((descr[:, np.newaxis], data), axis=1)
+            titles = ["descr"] + titles
         df = DataFrame(data, columns=titles)
         filepath = self.results_dir + set_type.value + "_classification_results.csv"
         if self.s3 is not None:

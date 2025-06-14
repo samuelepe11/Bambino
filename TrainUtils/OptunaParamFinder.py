@@ -102,9 +102,9 @@ class OptunaParamFinder:
             print("CSV-stored models inserted!")
 
             # Untracked models
-            models_present = [name.strip(".pt") for name in os.listdir(self.results_dir) if ".pt" in name]
+            models_present = ["t" + name.strip(".pt") for name in os.listdir(self.results_dir) if ".pt" in name]
             if len(models_present) > 0:
-                max_model_id = np.max([int(name[5:]) for name in models_present])
+                max_model_id = np.max([int(name[6:]) for name in models_present])
                 n_untracked_models = max_model_id - self.counter
                 if n_untracked_models > -1:
                     for i in range(n_untracked_models + 1):
@@ -125,13 +125,11 @@ class OptunaParamFinder:
                             row.update({"value": val_output})
                         else:
                             row.update({"values_0": val_output, "values_1": train_output})
-                        params = trainer.net_params
+                        params = trainer.net.params
                         params.update({"batch_size": int(math.log2(params["batch_size"])),
-                                       "lr_last": int(-math.log10(params["lr_last"])),
-                                       "n_conv_view_neurons": int(math.log2(params["n_conv_view_neurons"])),
-                                       "n_conv_segment_neurons": int(math.log2(params["n_conv_segment_neurons"])),
-                                       "p_drop": int(params["p_dropout"] * 10)})
-                        del params["p_dropout"]
+                                       "hidden_dim": int(math.log2(params["hidden_dim"])),
+                                       "lr": int(-math.log10(params["lr"])),
+                                       "n_conv_neurons": int(math.log2(params["n_conv_neurons"]))})
                         self.insert_trial(row, params, distributions)
                         print("Untracked model", self.counter, "inserted!")
                         self.counter += 1
@@ -141,7 +139,7 @@ class OptunaParamFinder:
 
     def objective(self, trial):
         # Store previous results
-        if self.counter >= 10 and self.counter % 10 == 0:
+        if self.counter >= 2:
             self.analyze_study(show_best=False)
 
         # Sample parameters
@@ -315,8 +313,8 @@ class OptunaParamFinder:
 if __name__ == "__main__":
     # Define variables
     working_dir1 = "./../../"
-    model_name1 = "stimulus_conv1d_optuna"
-    net_type1 = NetType.CONV1D
+    model_name1 = "stimulus_conv2d_optuna"
+    net_type1 = NetType.CONV2D
     task_type1 = TaskType.TRIAL
     epochs1 = 200
     batch_size1 = None
@@ -335,7 +333,7 @@ if __name__ == "__main__":
                                               is_boa=is_boa1)
 
     # Define Optuna model
-    n_trials1 = 39
+    n_trials1 = 37
     output_metric1 = "mcc"
     double_output1 = True
     optuna1 = OptunaParamFinder(model_name=model_name1, working_dir=working_dir1, task_type=task_type1,
