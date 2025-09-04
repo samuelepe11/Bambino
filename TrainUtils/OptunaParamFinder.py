@@ -163,6 +163,7 @@ class OptunaParamFinder:
         print("Trial ID:", self.counter)
         print("Parameters:", params)
         self.counter += 1
+        print(self.counter)
         try:
             if not self.is_boa:
                 if not self.is_toy:
@@ -313,8 +314,8 @@ class OptunaParamFinder:
 if __name__ == "__main__":
     # Define variables
     working_dir1 = "./../../"
-    model_name1 = "stimulus_conv2d_optuna"
-    net_type1 = NetType.CONV2D
+    model_name1 = "stimulus_conv1d_optuna"
+    net_type1 = NetType.CONV1D
     task_type1 = TaskType.TRIAL
     epochs1 = 200
     batch_size1 = None
@@ -333,7 +334,7 @@ if __name__ == "__main__":
                                               is_boa=is_boa1)
 
     # Define Optuna model
-    n_trials1 = 37
+    n_trials1 = 2
     output_metric1 = "mcc"
     double_output1 = True
     optuna1 = OptunaParamFinder(model_name=model_name1, working_dir=working_dir1, task_type=task_type1,

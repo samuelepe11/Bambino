@@ -131,7 +131,8 @@ class StatsHolder:
         return stats
 
     @staticmethod
-    def draw_compare_plots(stat_list, extra_feature_name, set_type, path, desired_stats=None, alpha_ci=0.05):
+    def draw_compare_plots(stat_list, extra_feature_name, set_name, path, desired_stats=None, alpha_ci=0.05,
+                           values_list=None):
         fig_size = (10, 5)
         if desired_stats is None:
             all_stats = True
@@ -148,7 +149,8 @@ class StatsHolder:
         else:
             extra_var = extra_feature_name.split(" - ")
             extra_var = extra_var[-1].upper()
-        extra_var += " CODE"
+        if values_list is None:
+            extra_var += " CODE"
         missing = []
         for i in range(len(stat_list)):
             stats = stat_list[i]
@@ -182,7 +184,12 @@ class StatsHolder:
         if desired_stats is not None and len(desired_stats) == 1:
             ax = sns.barplot(x=extra_var, y="Value", data=df.dropna(), width=1,
                              errorbar=("ci", 100 * (1 - alpha_ci)), err_kws={"linewidth": 1}, capsize=0.2)
-            plt.xticks(range(0, np.max(df[extra_var]), 5))
+            if values_list is None:
+                plt.xticks(range(0, np.max(df[extra_var]) + 1, 5))
+            else:
+                selected_ticks = range(0, np.max(df[extra_var]) + 1, 3)
+                selected_ticks_labels = [np.unique([values_list])[ind] for ind in selected_ticks]
+                plt.xticks(selected_ticks, selected_ticks_labels, size=10)
         else:
             ax = sns.barplot(x="Metric type", y="Value", data=df, hue=extra_var, width=0.5,
                              errorbar=("ci", 100 * (1 - alpha_ci)), err_kws={"linewidth": 1.5}, capsize=0.3,
@@ -194,7 +201,7 @@ class StatsHolder:
             init = StatsHolder.comparable_stats[desired_stats[0]]
         else:
             init = "Statistics"
-        plt.title(init + " on the " + set_type.value.upper() + " set")
+        plt.title(init + " on the " + set_name.upper() + " set")
         plt.ylabel("Metric value with 95% CI")
 
         if all_stats:
@@ -202,45 +209,55 @@ class StatsHolder:
         else:
             addon = "_".join(desired_stats) + "_"
         title_start = path + addon
-        plt.savefig(title_start + set_type.value + "_compare_barplot.jpg", dpi=300)
+        plt.savefig(title_start + set_name + "_compare_barplot.jpg", dpi=300)
         plt.close()
 
         # Draw boxplot
         plt.figure(figsize=fig_size)
         if desired_stats is not None and len(desired_stats) == 1:
             ax = sns.boxplot(x=extra_var, y="Value", data=df.dropna())
-            plt.xticks(range(0, np.max(df[extra_var]), 5))
+            if values_list is None:
+                plt.xticks(range(0, np.max(df[extra_var]) + 1, 5))
+            else:
+                selected_ticks = range(0, np.max(df[extra_var]) + 1, 4)
+                selected_ticks_labels = [np.unique([values_list])[ind] for ind in selected_ticks]
+                plt.xticks(selected_ticks, selected_ticks_labels, size=10)
         else:
             ax = sns.boxplot(x="Metric type", y="Value", data=df, hue=extra_var,
                              palette=sns.color_palette("dark:#5A9_r", n_colors=n_hue_levels))
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
         plt.ylim([-0.05, 1.05])
-        plt.title(init + " on the " + set_type.value.upper() + " set")
+        plt.title(init + " on the " + set_name.upper() + " set")
         plt.ylabel("Metric value")
 
-        plt.savefig(title_start + set_type.value + "_compare_boxplot.jpg", dpi=300)
+        plt.savefig(title_start + set_name + "_compare_boxplot.jpg", dpi=300)
         plt.close()
 
         # Draw violin plot
         plt.figure(figsize=fig_size)
         if desired_stats is not None and len(desired_stats) == 1:
             ax = sns.violinplot(x=extra_var, y="Value", data=df.dropna())
-            plt.xticks(range(0, np.max(df[extra_var]), 5))
+            if values_list is None:
+                plt.xticks(range(0, np.max(df[extra_var]) + 1, 5))
+            else:
+                selected_ticks = range(0, np.max(df[extra_var]) + 1, 3)
+                selected_ticks_labels = [np.unique([values_list])[ind] for ind in selected_ticks]
+                plt.xticks(selected_ticks, selected_ticks_labels, size=10)
         else:
             ax = sns.violinplot(x="Metric type", y="Value", data=df, hue=extra_var,
                                 palette=sns.color_palette("dark:#5A9_r", n_colors=n_hue_levels))
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
         plt.ylim([-0.05, 1.05])
-        plt.title(init + " on the " + set_type.value.upper() + " set")
+        plt.title(init + " on the " + set_name.upper() + " set")
         plt.ylabel("Metric value")
 
-        plt.savefig(title_start + set_type.value + "_compare_violinplot.jpg", dpi=300)
+        plt.savefig(title_start + set_name + "_compare_violinplot.jpg", dpi=300)
         plt.close()
 
     @staticmethod
-    def statistically_compare_stats(stat_list, extra_feature_name, set_type, path, checking_patterns=None,
+    def statistically_compare_stats(stat_list, extra_feature_name, set_name, path, checking_patterns=None,
                                     alpha=0.05, n_rep=100):
         if "histograms" not in os.listdir(path):
             os.mkdir(path + "histograms/")
@@ -261,7 +278,7 @@ class StatsHolder:
             plt.figure(figsize=(10, 5))
             plt.xlabel(stat_name)
             plt.ylabel("Absolute frequency")
-            plt.title(stat_name + " in the " + set_type.value + " set")
+            plt.title(stat_name + " in the " + set_name + " set")
             normality = []
             for i in range(len(vals)):
                 val = vals[i]
@@ -270,7 +287,7 @@ class StatsHolder:
                 normality.append(StatsHolder.verify_normality(stat_name + " for " + extra_feature_name + " = " + str(i),
                                                               val, alpha))
             plt.legend()
-            plt.savefig(path + extra_feature_name + "_" + set_type.value + "_" + stat + "_histogram.jpg", dpi=300)
+            plt.savefig(path + extra_feature_name + "_" + set_name + "_" + stat + "_histogram.jpg", dpi=300)
             plt.close()
 
             for ind1, ind2 in checking_patterns:

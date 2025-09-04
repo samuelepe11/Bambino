@@ -151,6 +151,7 @@ class StimulusConv1d(nn.Module):
             self.cuda()
         else:
             self.cpu()
+
         # Set specific layers
         for layer in self.__dict__.keys():
             if isinstance(self.__dict__[layer], nn.Module):

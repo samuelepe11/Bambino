@@ -20,10 +20,11 @@ class ToyNetworkTrainer(NetworkTrainer):
     convergence_patience = 5
 
     def __init__(self, model_name, working_dir, net_type, epochs, val_epochs, params=None, use_cuda=False,
-                 separated_inputs=True, train_data=None, val_data=None, test_data=None, s3=None, is_boa=False):
+                 separated_inputs=True, train_data=None, val_data=None, test_data=None, s3=None, is_boa=False,
+                 subjective_trial_stats=False):
         super().__init__(model_name, working_dir, TaskType.STIM, net_type, epochs, val_epochs, params, use_cuda,
                          separated_inputs, is_boa=is_boa, is_toy=True, train_data=train_data, val_data=val_data,
-                         test_data=test_data, s3=s3)
+                         test_data=test_data, s3=s3, subjective_trial_stats=subjective_trial_stats)
 
     @staticmethod
     def custom_collate_fn(batch):
@@ -37,9 +38,12 @@ class ToyNetworkTrainer(NetworkTrainer):
                                                                                    max_len)))
         batch_inputs, batch_labels, extra = NetworkTrainer.custom_collate_fn(batch)
         batch_age, batch_trial, batch_trial_no_categorical = extra
-        batch_sex = torch.stack([extra[3] for _, _, extra in batch])
+        batch_age_no_categorical = torch.stack([extra[3] for _, _, extra in batch])
+        batch_age_no_categorical = batch_age_no_categorical.squeeze(1)
+        batch_sex = torch.stack([extra[4] for _, _, extra in batch])
         batch_sex = batch_sex.squeeze(1)
-        return batch_inputs, batch_labels, [batch_age, batch_trial, batch_trial_no_categorical, batch_sex]
+        return batch_inputs, batch_labels, [batch_age, batch_trial, batch_trial_no_categorical, batch_age_no_categorical,
+                                            batch_sex]
 
 
 # Main
@@ -49,18 +53,20 @@ if __name__ == "__main__":
 
     # Define variables
     working_dir1 = "./../../"
-    # model_name1 = "clinician_performance"
-    model_name1 = "stimulus_conv1d_optuna"
+    model_name1 = "clinician_performance"
+    model_name1 = "stimulus_conv2d_optuna"
     net_type1 = NetType.CONV1D
     epochs1 = 2
-    trial_n1 = 39
+    trial_n1 = 44
     val_epochs1 = 10
     use_cuda1 = False
     separated_inputs1 = True
+    subjective_trial_stats1 = True
     assess_calibration1 = True
-    perform_extra_analysis1 = False
+    perform_extra_analysis1 = True
     desired_class1 = 1
     show_test1 = True
+    show_pooled1 = True
 
     # Load data
     train_data1 = OpenFaceDataset.load_dataset(working_dir=working_dir1, dataset_name="training_set", is_toy=True)
@@ -73,20 +79,26 @@ if __name__ == "__main__":
     trainer1 = ToyNetworkTrainer(model_name=model_name1, working_dir=working_dir1, net_type=net_type1, epochs=epochs1,
                                  val_epochs=val_epochs1, params=params1, use_cuda=use_cuda1,
                                  separated_inputs=separated_inputs1, train_data=train_data1, val_data=val_data1, 
-                                 test_data=test_data1)
+                                 test_data=test_data1, subjective_trial_stats=subjective_trial_stats1)
 
     # Show clinician performance
-    for set_type1 in SetType:
-        '''trainer1.show_clinician_stim_performance(set_type=set_type1, desired_class=desired_class1,
-                                                 perform_extra_analysis=perform_extra_analysis1)'''
+    '''for set_type1 in SetType:
+        trainer1.show_clinician_stim_performance(set_type=set_type1, desired_class=desired_class1,
+                                                 perform_extra_analysis=perform_extra_analysis1)
         print("\n=======================================================================================================\n")
+    if show_pooled1:
+        trainer1.show_clinician_stim_performance(set_type=None, desired_class=desired_class1,
+                                                 perform_extra_analysis=perform_extra_analysis1)
+        print(
+            "\n=======================================================================================================\n")'''
 
     # Train model
     # trainer1.train(show_epochs=True)
     
     # Evaluate model
     trainer1 = ToyNetworkTrainer.load_model(working_dir=working_dir1, model_name=model_name1, trial_n=trial_n1,
-                                            use_cuda=use_cuda1, is_toy=True)
+                                            use_cuda=use_cuda1, is_toy=True, subjective_trial_stats=subjective_trial_stats1,
+                                            results_fold=ToyNetworkTrainer.results_fold)
     trainer1.summarize_performance(show_test=show_test1, show_process=True, desired_class=desired_class1, show_cm=True,
-                                   assess_calibration=assess_calibration1,
-                                   perform_extra_analysis=perform_extra_analysis1)
+                                   assess_calibration=assess_calibration1, perform_extra_analysis=perform_extra_analysis1, 
+                                   show_pooled=show_pooled1)

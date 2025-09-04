@@ -2,6 +2,7 @@
 import random
 import numpy as np
 import copy
+import torch
 
 from DataUtils.OpenFaceDataset import OpenFaceDataset
 from DataUtils.OpenFaceInstance import OpenFaceInstance
@@ -22,12 +23,13 @@ class ToyOpenFaceDataset(OpenFaceDataset):
 
     def __getitem__(self, idx):
         x, y, extra = super().__getitem__(idx)
-        age, trial_id_categorical, trial_id = extra
+        age_categorical, trial_id_categorical, trial_id = extra
 
         instance = self.instances[idx]
+        age = torch.tensor([instance.age])
         sex = OpenFaceDataset.preprocess_label(instance.sex)
 
-        return x, y, [age, trial_id_categorical, trial_id, sex]
+        return x, y, [age_categorical, trial_id_categorical, trial_id, age, sex]
 
     def adjust_data_length(self):
         threshold = int(self.time_threshold * OpenFaceDataset.fc)

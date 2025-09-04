@@ -88,12 +88,14 @@ class OpenFaceDataset(Dataset):
              "f": torch.Tensor(instance.face_info)}
         y = OpenFaceDataset.preprocess_label(instance.trial_type)
 
-        age = OpenFaceInstance.categorize_age(instance.age, self.is_boa)
-        age = OpenFaceDataset.preprocess_label(age)
-        trial_id_categorical = OpenFaceInstance.categorize_trial_id(instance.trial_id, self.trial_id_stats)
+        age_categorical = OpenFaceInstance.categorize_age(instance.age, self.is_boa)
+        age_categorical = OpenFaceDataset.preprocess_label(age_categorical)
+
+        trial_id_stats = self.trial_id_stats if not isinstance(self.trial_id_stats, dict) else self.trial_id_stats[instance.pt_id]
+        trial_id_categorical = OpenFaceInstance.categorize_trial_id(instance.trial_id, trial_id_stats)
         trial_id_categorical = OpenFaceDataset.preprocess_label(trial_id_categorical)
         trial_id = OpenFaceDataset.preprocess_label(instance.trial_id)
-        return x, y, [age, trial_id_categorical, trial_id]
+        return x, y, [age_categorical, trial_id_categorical, trial_id]
 
     def __len__(self):
         return self.len
@@ -338,6 +340,17 @@ class OpenFaceDataset(Dataset):
             dataset.trial_id_stats = train_trial_id_stats
 
         return dataset
+
+    @staticmethod
+    def get_subjective_trial_stats(data):
+        trial_stats_dict = {}
+        for pt_id in data.ids:
+            pt_trials = [instance.trial_id for instance in data.instances if instance.pt_id == pt_id]
+            m_trial = np.mean(pt_trials)
+            s_trial = np.std(pt_trials)
+            trial_stats_dict.update({pt_id: (m_trial, s_trial)})
+
+        return trial_stats_dict
 
 
 # Main

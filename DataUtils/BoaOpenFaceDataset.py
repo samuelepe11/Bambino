@@ -29,7 +29,7 @@ class BoaOpenFaceDataset(ToyOpenFaceDataset):
 
     def __getitem__(self, idx):
         x, y, extra = super().__getitem__(idx)
-        age, trial_id_categorical, trial_id, sex = extra
+        age_categorical, trial_id_categorical, trial_id, age, sex = extra
 
         instance = self.instances[idx]
         audio = list(self.audio_groups).index(instance.audio)
@@ -37,7 +37,7 @@ class BoaOpenFaceDataset(ToyOpenFaceDataset):
         speaker = instance.speaker if instance.speaker is not None else -1
         speaker = OpenFaceDataset.preprocess_label(speaker)
 
-        return x, y, [age, trial_id_categorical, trial_id, sex, audio, speaker]
+        return x, y, [age_categorical, trial_id_categorical, trial_id, age, sex, audio, speaker]
 
     def split_dataset(self, train_perc, is_child_dataset=False):
         # Get set-specific instances

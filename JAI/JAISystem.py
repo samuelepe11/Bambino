@@ -50,6 +50,7 @@ class JAISystem:
         if data_descr is not None:
             x, y = self.get_item(data_descr)
         cams, output_prob = self.draw_cam(self.trainer, x, target_layer_id, target_class, explainer_type)
+        real_signal_length = x["g"].shape[0] if self.is_toy and not self.is_boa else None
         if self.is_toy or self.is_boa:
             initial_pad_dim = OpenFaceDataset.time_stimulus * OpenFaceDataset.fc
             x = {k: np.concatenate([np.zeros((initial_pad_dim, x[k].shape[1]), np.uint8), v]) for k, v in x.items()}
@@ -63,7 +64,7 @@ class JAISystem:
         if data_descr is not None:
             self.display_output(data_descr, target_layer_id, target_class, x, y, explainer_type, cams, output_prob,
                                 show, show_graphs, cams_in_one_plot=cams_in_one_plot,
-                                normalize_jointly=normalize_jointly)
+                                normalize_jointly=normalize_jointly, real_signal_length=real_signal_length)
         else:
             return cams
 
@@ -81,7 +82,7 @@ class JAISystem:
 
     def display_output(self, data_descr, target_layer_id, target_class, x, y, explainer_type, maps, output_prob,
                        show=False, show_graphs=False, averaged_folder=None, cams_in_one_plot=False,
-                       normalize_jointly=False):
+                       normalize_jointly=False, real_signal_length=None):
         if averaged_folder is None:
             title = ("CAM for class " + str(target_class) + " (" + str(np.round(output_prob * 100, 2)) +
                      "%) - true label: " + str(int(y)))
@@ -129,6 +130,13 @@ class JAISystem:
                     plt.text(x=OpenFaceDataset.time_stimulus * OpenFaceDataset.fc, y=map.shape[1],
                              s="possible stimulus", color="black", ha="center", va="top")
 
+                    # Highlight ending time
+                    if real_signal_length is not None:
+                        plt.axvline(x=OpenFaceDataset.time_stimulus * OpenFaceDataset.fc + real_signal_length,
+                                    color="black", linestyle="--", linewidth=2)
+                        plt.text(x=OpenFaceDataset.time_stimulus * OpenFaceDataset.fc + real_signal_length,
+                                 y=map.shape[1], s="acquisition end", color="black", ha="center", va="top")
+
                     # Adjust axes
                     plt.title(title)
                     plt.xlabel("Time (s)")
@@ -149,6 +157,13 @@ class JAISystem:
                                        linewidth=2)
                     axs[count].text(x=OpenFaceDataset.time_stimulus * OpenFaceDataset.fc, y=map.shape[1],
                                     s="possible stimulus", color="black", ha="center", va="top")
+
+                    # Highlight ending time
+                    if real_signal_length is not None:
+                        axs[count].axvline(x=OpenFaceDataset.time_stimulus * OpenFaceDataset.fc + real_signal_length,
+                                           color="black", linestyle="--", linewidth=2)
+                        axs[count].text(x=OpenFaceDataset.time_stimulus * OpenFaceDataset.fc + real_signal_length,
+                                        y=map.shape[1], s="acquisition end", color="black", ha="center", va="top")
 
                     # Adjust axes
                     axs[count].set_xlabel("Time (s)", loc="right")
@@ -191,7 +206,14 @@ class JAISystem:
                     if explainer_type.value not in os.listdir(directory + "/" + item_name):
                         os.mkdir(name_start)
                     name_start += "conv_" + block + target_layer_id + "__" + str(target_class)
-                    JAISystem.show_graphs(item=x, block=block, map=map, name_start=name_start)
+                    if self.is_toy or self.is_boa:
+                        x[block] = x[block][OpenFaceDataset.time_stimulus * OpenFaceDataset.fc:]
+                        map = map[OpenFaceDataset.time_stimulus * OpenFaceDataset.fc:]
+                    if real_signal_length is not None:
+                        x[block] = x[block][:real_signal_length]
+                        map = map[:real_signal_length]
+                    JAISystem.show_graphs(item=x, block=block, map=map, name_start=name_start,
+                                          real_signal_length=real_signal_length)
             else:
                 # Project a proper function
                 print("Functionality not available...")
@@ -251,7 +273,7 @@ class JAISystem:
                                         cams_in_one_plot=cams_in_one_plot, normalize_jointly=normalize_jointly)
 
     @staticmethod
-    def show_graphs(item, block, map, name_start):
+    def show_graphs(item, block, map, name_start, real_signal_length=None):
         # Extract signals
         x = item[block]
         name = OpenFaceInstance.dim_names[block]
@@ -264,22 +286,27 @@ class JAISystem:
         settings = OpenFaceInstance.subplot_settings[block]
         plt.figure(figsize=(settings[0], settings[1]))
         plt.suptitle(name.upper())
-        time_steps = np.arange(OpenFaceDataset.max_time * OpenFaceDataset.fc)
+        time_steps = np.arange(OpenFaceDataset.max_time * OpenFaceDataset.fc) if real_signal_length is None \
+            else np.arange(real_signal_length)
+        time_ticks = JAISystem.time_steps if real_signal_length is None else list(range(0, real_signal_length + 10, 10))
+        time_ticks_labels = [str(int(t / OpenFaceDataset.fc)) for t in time_ticks] if real_signal_length is None \
+            else [str(t / OpenFaceDataset.fc) for t in time_ticks]
+        s = 40 if real_signal_length is None else 60
         for i in range(x.shape[1]):
             plt.subplot(settings[2], settings[3], i + 1)
             plt.tight_layout()
             plt.plot(time_steps, x[:, i], color="black", linewidth=0.5)
             norm = mcolors.Normalize(vmin=0, vmax=0.1) if len(np.unique(map[:, i])) == 1 and map[0][i] == 0 else None
-            plt.scatter(time_steps, x[:, i], c=map[:, i], cmap="jet", marker=".", s=40, norm=norm)
+            plt.scatter(time_steps, x[:, i], c=map[:, i], cmap="jet", marker=".", s=s, norm=norm)
             plt.colorbar()
-            plt.xticks(JAISystem.time_steps, [str(int(t / OpenFaceDataset.fc)) for t in JAISystem.time_steps],
-                       fontsize=8)
+            plt.xticks(time_ticks, time_ticks_labels, fontsize=8)
             plt.xlabel("Time (s)")
             plt.title(labels[i].upper())
 
             # Highlight stimulus time
-            plt.axvline(x=OpenFaceDataset.time_stimulus * OpenFaceDataset.fc, color="black", linestyle="--",
-                        linewidth=2)
+            if real_signal_length is None:
+                plt.axvline(x=OpenFaceDataset.time_stimulus * OpenFaceDataset.fc, color="black", linestyle="--",
+                            linewidth=2)
 
         plt.savefig(name_start + ".png", format="png", bbox_inches="tight", pad_inches=0, dpi=500)
         plt.close()
@@ -394,8 +421,8 @@ if __name__ == "__main__":
     working_dir1 = "./../../"
 
     # Define the system
-    model_name1 = "stimulus_conv1d_optuna"
-    trial_n1 = 39
+    model_name1 = "stimulus_conv2d_optuna"
+    trial_n1 = 44
     use_cuda1 = False
     is_toy1 = True
     is_boa1 = False
@@ -405,7 +432,7 @@ if __name__ == "__main__":
     # Explain some items
     data_descriptions = [{"pt": "bam2_004", "trial": 7}, {"pt": "bam2_004", "trial": 9},
                          {"pt": "bam2_010", "trial": 16}, {"pt": "bam2_020", "trial": 32}]
-    target_layer_id1 = "2"
+    target_layer_id1 = "1"
     target_classes = [0, 1]
     explainer_types = [ExplainerType.GC, ExplainerType.HRC]
     show1 = False

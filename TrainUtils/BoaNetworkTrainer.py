@@ -17,20 +17,22 @@ class BoaNetworkTrainer(ToyNetworkTrainer):
     convergence_patience = 5
 
     def __init__(self, model_name, working_dir, net_type, epochs, val_epochs, params=None, use_cuda=False,
-                 separated_inputs=True, train_data=None, val_data=None, test_data=None, s3=None):
+                 separated_inputs=True, train_data=None, val_data=None, test_data=None, s3=None,
+                 subjective_trial_stats=False):
         super().__init__(model_name, working_dir, net_type, epochs, val_epochs, params, use_cuda, separated_inputs,
-                         train_data=train_data, val_data=val_data,  test_data=test_data, s3=s3, is_boa=True)
+                         train_data=train_data, val_data=val_data,  test_data=test_data, s3=s3, is_boa=True,
+                         subjective_trial_stats=subjective_trial_stats)
 
     @staticmethod
     def custom_collate_fn(batch):
         batch_inputs, batch_labels, extra = ToyNetworkTrainer.custom_collate_fn(batch)
-        batch_age, batch_trial, batch_trial_no_categorical, batch_sex = extra
-        batch_audio = torch.stack([extra[4] for _, _, extra in batch])
+        batch_age, batch_trial, batch_trial_no_categorical, batch_age_no_categorical, batch_sex = extra
+        batch_audio = torch.stack([extra[5] for _, _, extra in batch])
         batch_audio = batch_audio.squeeze(1)
-        batch_speaker = torch.stack([extra[5] for _, _, extra in batch])
+        batch_speaker = torch.stack([extra[6] for _, _, extra in batch])
         batch_speaker = batch_speaker.squeeze(1)
-        return batch_inputs, batch_labels, [batch_age, batch_trial, batch_trial_no_categorical, batch_sex, batch_audio,
-                                            batch_speaker]
+        return batch_inputs, batch_labels, [batch_age, batch_trial, batch_trial_no_categorical, batch_age_no_categorical,
+                                            batch_sex, batch_audio, batch_speaker]
 
 
 # Main
