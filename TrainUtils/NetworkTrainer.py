@@ -25,6 +25,7 @@ from TrainUtils.StatsHolder import StatsHolder
 from Types.NetType import NetType
 from Networks.StimulusConv1d import StimulusConv1d
 from Networks.StimulusConv2d import StimulusConv2d
+from Networks.HierarchicalStimulusConv1d import HierarchicalStimulusConv1d
 
 
 # Class
@@ -37,7 +38,7 @@ class NetworkTrainer:
 
     def __init__(self, model_name, working_dir, task_type, net_type, epochs, val_epochs, params=None, use_cuda=True,
                  separated_inputs=True, is_boa=False, is_toy=False, train_data=None, val_data=None, test_data=None,
-                 s3=None, subjective_trial_stats=False):
+                 s3=None, subjective_trial_stats=False, age_dim=None, trial_dim=None):
         # Initialize attributes
         self.is_boa = is_boa
         self.is_toy = is_toy
@@ -69,11 +70,14 @@ class NetworkTrainer:
             # TaskType.STIM
             self.classes = OpenFaceDataset.trial_types
 
+        self.is_hierarc = net_type in [NetType.H_CONV1D, NetType.H_CONV2D]
         if net_type == NetType.CONV1D:
             self.net = StimulusConv1d(params=params, separated_inputs=separated_inputs, n_classes=len(self.classes))
-        else:
-            # NetType.CONV2D
+        elif net_type == NetType.CONV2D:
             self.net = StimulusConv2d(params=params, separated_inputs=separated_inputs, n_classes=len(self.classes))
+        elif net_type == NetType.H_CONV1D:
+            self.net = HierarchicalStimulusConv1d(age_dim=age_dim, trial_dim=trial_dim, params=params,
+                                                  separated_inputs=separated_inputs, n_classes=len(self.classes))
 
         # Define training parameters
         self.epochs = epochs
@@ -93,6 +97,8 @@ class NetworkTrainer:
         self.optuna_study = None
 
         self.use_cuda = torch.cuda.is_available() and use_cuda
+        self.device = "cuda" if self.use_cuda else "cpu"
+
         # Otherwise CUDA runs out of memory
         if params is not None and params["n_conv_neurons"] > 1000:
             self.use_cuda = False
@@ -164,8 +170,8 @@ class NetworkTrainer:
             net.set_training(True)
             train_loss = 0
             train_acc = 0
-            for x, y, _ in self.train_loader:
-                loss, _, acc = self.apply_network(net, x, y)
+            for x, y, extra_info in self.train_loader:
+                loss, _, acc = self.apply_network(net, x, y, extra_info)
                 train_loss += loss.item()
                 train_acc += acc.item()
 
@@ -231,12 +237,15 @@ class NetworkTrainer:
             else:
                 return val_output
 
-    def apply_network(self, net, x, y):
+    def apply_network(self, net, x, y, extra_info=None):
         x = {key: (x[key] - self.train_mean[key]) / self.train_std[key] for key in x.keys()}
         x = {key: x[key].to(self.device) for key in x.keys()}
         y = y.to(self.device)
 
-        output = net(x)
+        if not self.is_hierarc:
+            output = net(x)
+        else:
+            output = self.net(x, age=extra_info[0], trial_id=extra_info[1])
 
         # Train loss evaluation
         loss = self.criterion(output, y)
@@ -325,7 +334,7 @@ class NetworkTrainer:
         net.set_training(False)
         with torch.no_grad():
             for x, y, extra_info in data_loader:
-                temp_loss, output, _ = self.apply_network(net, x, y)
+                temp_loss, output, _ = self.apply_network(net, x, y, extra_info)
                 loss += temp_loss.item()
 
                 # Accuracy evaluation
@@ -1035,55 +1044,58 @@ if __name__ == "__main__":
 
     # Define variables
     working_dir1 = "./../../"
-    model_name1 = "clinician_performance"
-    # model_name1 = "stimulus_conv1d"
-    net_type1 = NetType.CONV1D
+    # model_name1 = "clinician_performance"
+    model_name1 = "hierarchical_stimulus_conv1d"
+    net_type1 = NetType.H_CONV1D
     task_type1 = TaskType.STIM
-    epochs1 = 200
+    epochs1 = 100
     trial_n1 = None
     val_epochs1 = 10
     use_cuda1 = False
     separated_inputs1 = True
     subjective_trial_stats1 = False
     assess_calibration1 = True
-    perform_extra_analysis1 = True
+    perform_extra_analysis1 = False
     desired_class1 = 1
-    show_test1 = True
+    show_test1 = False
     show_pooled1 = False
+
+    age_dim1 = 3
+    trial_dim1 = 3
 
     # Define trainer
     # params1 = {"n_conv_neurons": 1536, "n_conv_layers": 1, "kernel_size": 7, "hidden_dim": 64, "p_drop": 0.5,
     #            "n_extra_fc_after_conv": 1, "n_extra_fc_final": 1, "optimizer": "RMSprop", "lr": 0.008, "batch_size": 64}  # stimulus_conv1
-    params1 = {"n_conv_neurons": 256, "n_conv_layers": 1, "kernel_size": 3, "hidden_dim": 32, "p_drop": 0.2,
-               "n_extra_fc_after_conv": 0, "n_extra_fc_final": 1, "optimizer": "RMSprop", "lr": 0.01,
-               "batch_size": 64}  # stimulus_conv2
+    # params1 = {"n_conv_neurons": 256, "n_conv_layers": 1, "kernel_size": 3, "hidden_dim": 32, "p_drop": 0.2,
+    #            "n_extra_fc_after_conv": 0, "n_extra_fc_final": 1, "optimizer": "RMSprop", "lr": 0.01,
+    #            "batch_size": 64}  # stimulus_conv2
+    params1 = None
     trainer1 = NetworkTrainer(model_name=model_name1, working_dir=working_dir1, task_type=task_type1,
                               net_type=net_type1, epochs=epochs1, val_epochs=val_epochs1, params=params1,
                               use_cuda=use_cuda1, separated_inputs=separated_inputs1,
-                              subjective_trial_stats=subjective_trial_stats1)
+                              subjective_trial_stats=subjective_trial_stats1, age_dim=age_dim1, trial_dim=trial_dim1)
 
     # Show clinician performance
     '''for set_type1 in SetType:
         trainer1.show_clinician_stim_performance(set_type=set_type1, desired_class=desired_class1,
                                                  perform_extra_analysis=perform_extra_analysis1)
         print("\n=======================================================================================================\n")'''
-    if show_pooled1:
+    '''if show_pooled1:
         trainer1.show_clinician_stim_performance(set_type=None, desired_class=desired_class1,
                                                  perform_extra_analysis=perform_extra_analysis1)
-        print("\n=======================================================================================================\n")
+        print("\n=======================================================================================================\n")'''
 
     # Train model
     print()
     print()
-    # trainer1.train(show_epochs=True)
+    trainer1.train(show_epochs=True)
 
     # Evaluate model
-    '''trainer1 = NetworkTrainer.load_model(working_dir=working_dir1, model_name=model_name1, trial_n=trial_n1,
+    trainer1 = NetworkTrainer.load_model(working_dir=working_dir1, model_name=model_name1, trial_n=trial_n1,
                                          use_cuda=use_cuda1)
     trainer1.summarize_performance(show_test=show_test1, show_process=True, desired_class=desired_class1, show_cm=True,
                                    assess_calibration=assess_calibration1,
-                                   perform_extra_analysis=perform_extra_analysis1, 
-                                   subjective_trial_stats=subjective_trial_stats1, show_pooled=show_pooled1)'''
+                                   perform_extra_analysis=perform_extra_analysis1, show_pooled=show_pooled1)
 
     # Retrain model
     # trainer1.train(show_epochs=True)

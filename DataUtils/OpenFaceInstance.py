@@ -93,7 +93,7 @@ class OpenFaceInstance:
             self.face_info = self.face_info[windows_inds, :]
 
     @staticmethod
-    def categorize_age(age, is_boa):
+    def categorize_age(age, is_boa=False):
         age_categorical = None
         if not is_boa:
             age = np.round(age)

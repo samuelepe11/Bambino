@@ -54,24 +54,23 @@ class StimulusConv1d(nn.Module):
         # Layers
         for block in self.blocks:
             for i in range(len(self.layer_dims[block]) - 1):
-                self.__dict__["conv_" + block + str(i)] = nn.Conv1d(self.layer_dims[block][i],
-                                                                    self.layer_dims[block][i + 1],
-                                                                    kernel_size=self.kernel_size, stride=1)
-                self.__dict__["relu_" + block + str(i)] = nn.ReLU()
-                self.__dict__["pool_" + block + str(i)] = nn.MaxPool1d(kernel_size=2)
-                self.__dict__["drop_" + block + str(i)] = nn.Dropout1d(p=self.p_drop)
+                setattr(self, "conv_" + block + str(i), nn.Conv1d(self.layer_dims[block][i], self.layer_dims[block][i + 1],
+                                                                  kernel_size=self.kernel_size, stride=1))
+                setattr(self, "relu_" + block + str(i), nn.ReLU())
+                setattr(self, "pool_" + block + str(i), nn.MaxPool1d(kernel_size=2))
+                setattr(self, "drop_" + block + str(i), nn.Dropout1d(p=self.p_drop))
 
-            self.__dict__["fc_" + block + "0"] = nn.Linear(self.layer_dims[block][-1], self.hidden_dim)
-            self.__dict__["relu_" + block + "0"] = nn.ReLU()
+            setattr(self, "fc_" + block + "0", nn.Linear(self.layer_dims[block][-1], self.hidden_dim))
+            setattr(self, "relu_" + block + "0", nn.ReLU())
             for i in range(self.n_extra_fc_after_conv):
-                self.__dict__["fc_" + block + str(i + 1)] = nn.Linear(self.hidden_dim, self.hidden_dim)
-                self.__dict__["relu_" + block + str(i + 1)] = nn.ReLU()
+                setattr(self, "fc_" + block + str(i + 1), nn.Linear(self.hidden_dim, self.hidden_dim))
+                setattr(self, "relu_" + block + str(i + 1), nn.ReLU())
 
         self.fc0 = nn.Linear(self.out_fc_dim, out_features=self.hidden_dim)
         self.relu0 = nn.ReLU()
         for i in range(self.n_extra_fc_final):
-            self.__dict__["fc" + str(i + 1)] = nn.Linear(self.hidden_dim, self.hidden_dim)
-            self.__dict__["relu" + str(i + 1)] = nn.ReLU()
+            setattr(self, "fc" + str(i + 1), nn.Linear(self.hidden_dim, self.hidden_dim))
+            setattr(self, "relu" + str(i + 1), nn.ReLU())
 
         self.fc = nn.Linear(self.hidden_dim, out_features=self.n_classes)
         self.softmax = nn.Softmax(dim=1)
@@ -82,7 +81,7 @@ class StimulusConv1d(nn.Module):
     def activations_hook(self, grad):
         self.gradients = grad
 
-    def forward(self, x, layer_interrupt=None):
+    def forward(self, x, layer_interrupt=None, age=None, trial_id=None):
         # Apply network
         target_activation = None
         outputs = []
@@ -100,7 +99,7 @@ class StimulusConv1d(nn.Module):
             for i in range(len(self.layer_dims[block]) - 1):
                 conv_layer = "conv_" + block + str(i)
                 try:
-                    out = self.__dict__[conv_layer](out)
+                    out = getattr(self, conv_layer)(out)
                 except RuntimeError:
                     padding = (self.kernel_size - 1) // 2
                     pad_dims = (padding, padding) if not self.is_2d else (padding, padding, padding, padding)
@@ -110,22 +109,44 @@ class StimulusConv1d(nn.Module):
                     target_activation = out
                     h = out.register_hook(self.activations_hook)
 
-                out = self.__dict__["relu_" + block + str(i)](out)
-                out = self.__dict__["pool_" + block + str(i)](out)
-                out = self.__dict__["drop_" + block + str(i)](out)
+                out = getattr(self, "relu_" + block + str(i))(out)
+                out = getattr(self, "pool_" + block + str(i))(out)
+                out = getattr(self, "drop_" + block + str(i))(out)
 
             out = torch.mean(out, dim=dim)
             for i in range(self.n_extra_fc_after_conv + 1):
-                out = self.__dict__["fc_" + block + str(i)](out)
-                out = self.__dict__["relu_" + block + str(i)](out)
+                out = getattr(self, "fc_" + block + str(i))(out)
+                out = getattr(self, "relu_" + block + str(i))(out)
             outputs.append(out)
         out = torch.concat(outputs, dim=1)
 
         out = self.fc0(out)
         out = self.relu0(out)
         for i in range(self.n_extra_fc_final):
-            out = self.__dict__["fc" + str(i + 1)](out)
-            out = self.__dict__["relu" + str(i + 1)](out)
+            out = getattr(self, "fc" + str(i + 1))(out)
+            out = getattr(self, "relu" + str(i + 1))(out)
+
+        if age is not None:
+            device = getattr(self, "age_fc_0").bias.device
+            if self.age_dim > 1:
+                age = F.one_hot(age.to(dtype=torch.long), num_classes=self.age_dim)
+            age = age.to(torch.float32).to(device)
+            for i in range(len(self.age_fc_layers) - 1):
+                age = getattr(self, "age_fc_" + str(i))(age)
+                age = getattr(self, "age_relu_" + str(i))(age)
+                age = getattr(self, "age_drop_" + str(i))(age)
+            out = torch.cat([out, age], dim=1)
+        if trial_id is not None:
+            device = getattr(self, "trial_fc_0").bias.device
+            if self.trial_dim > 1:
+                trial_id = F.one_hot(trial_id.to(dtype=torch.long), num_classes=self.trial_dim)
+            trial_id = trial_id.to(torch.float32).to(device)
+            for i in range(len(self.trial_fc_layers) - 1):
+                trial_id = getattr(self, "trial_fc_" + str(i))(trial_id)
+                trial_id = getattr(self, "trial_relu_" + str(i))(trial_id)
+                trial_id = getattr(self, "trial_drop_" + str(i))(trial_id)
+            out = torch.cat([out, trial_id], dim=1)
+
         out = self.fc(out)
 
         if layer_interrupt is not None:

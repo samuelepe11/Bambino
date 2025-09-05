@@ -88,7 +88,10 @@ class OpenFaceDataset(Dataset):
              "f": torch.Tensor(instance.face_info)}
         y = OpenFaceDataset.preprocess_label(instance.trial_type)
 
-        age_categorical = OpenFaceInstance.categorize_age(instance.age, self.is_boa)
+        try:
+            age_categorical = OpenFaceInstance.categorize_age(instance.age, self.is_boa)
+        except AttributeError:
+            age_categorical = OpenFaceInstance.categorize_age(instance.age)
         age_categorical = OpenFaceDataset.preprocess_label(age_categorical)
 
         trial_id_stats = self.trial_id_stats if not isinstance(self.trial_id_stats, dict) else self.trial_id_stats[instance.pt_id]

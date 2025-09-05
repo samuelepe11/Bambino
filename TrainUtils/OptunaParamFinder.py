@@ -26,7 +26,8 @@ class OptunaParamFinder:
 
     def __init__(self, model_name, working_dir, task_type, net_type, epochs, batch_size, val_epochs, n_trials,
                  separated_inputs=True, use_cuda=False, is_toy=False, is_boa=False, output_metric="f1",
-                 double_output=False, train_data=None, val_data=None, test_data=None, s3=None):
+                 double_output=False, train_data=None, val_data=None, test_data=None, s3=None, age_dim=None,
+                 trial_dim=None):
         self.model_name = model_name
         self.working_dir = working_dir
         self.task_type = task_type
@@ -47,6 +48,9 @@ class OptunaParamFinder:
         self.double_output = double_output
 
         self.s3 = s3
+
+        self.age_dim = age_dim
+        self.trial_dim = trial_dim
 
         # Create folder
         if not is_boa:
@@ -156,6 +160,15 @@ class OptunaParamFinder:
             "batch_size": int(2 ** (trial.suggest_int("batch_size", 4, 5, step=1))),
         }
 
+        if self.net_type in [NetType.H_CONV1D, NetType.H_CONV2D]:
+            params_hierarchical = {
+                "n_age_fc_neurons": int(trial.suggest_int("n_age_fc_neurons", 2, 3, step=1)),
+                "n_age_fc_layers": int(trial.suggest_int("n_age_fc_layers", 1, 2, step=1)),
+                "n_trial_fc_neurons": int(trial.suggest_int("n_trial_fc_neurons", 2, 3, step=1)),
+                "n_trial_fc_layers": int(trial.suggest_int("n_trial_fc_layers", 1, 2, step=1)),
+            }
+            params = params | params_hierarchical
+
         # Define seeds
         NetworkTrainer.set_seed(111099)
 
@@ -163,7 +176,6 @@ class OptunaParamFinder:
         print("Trial ID:", self.counter)
         print("Parameters:", params)
         self.counter += 1
-        print(self.counter)
         try:
             if not self.is_boa:
                 if not self.is_toy:
@@ -172,13 +184,15 @@ class OptunaParamFinder:
                                              val_epochs=self.val_epochs, params=params,
                                              separated_inputs=self.separated_inputs, use_cuda=self.use_cuda,
                                              train_data=self.train_data, val_data=self.val_data,
-                                             test_data=self.test_data, s3=self.s3)
+                                             test_data=self.test_data, s3=self.s3, age_dim=self.age_dim,
+                                             trial_dim=self.trial_dim)
                 else:
                     trainer = ToyNetworkTrainer(model_name=self.model_name, working_dir=self.working_dir,
                                                 net_type=self.net_type, epochs=self.epochs, val_epochs=self.val_epochs,
                                                 params=params, separated_inputs=self.separated_inputs,
                                                 use_cuda=self.use_cuda, train_data=self.train_data,
-                                                val_data=self.val_data, test_data=self.test_data, s3=self.s3)
+                                                val_data=self.val_data, test_data=self.test_data, s3=self.s3,
+                                                age_dim=self.age_dim, trial_dim=self.trial_dim)
             else:
                 trainer = BoaNetworkTrainer(model_name=self.model_name, working_dir=self.working_dir,
                                             net_type=self.net_type, epochs=self.epochs, val_epochs=self.val_epochs,
@@ -240,7 +254,7 @@ class OptunaParamFinder:
                 print("Best study:")
                 best_trials = self.study.best_trials
                 for trial in best_trials:
-                    print("Trial ID", trial.number - 1, "- outputs:", trial.values)
+                    print("Trial ID", trial.number, "- outputs:", trial.values)
 
             fig = optuna.visualization.plot_pareto_front(self.study,
                                                          target_names=["Validation metric", "Training metric"])
@@ -314,8 +328,8 @@ class OptunaParamFinder:
 if __name__ == "__main__":
     # Define variables
     working_dir1 = "./../../"
-    model_name1 = "stimulus_conv1d_optuna"
-    net_type1 = NetType.CONV1D
+    model_name1 = "hierarchical_stimulus_conv1d_optuna"
+    net_type1 = NetType.H_CONV1D
     task_type1 = TaskType.TRIAL
     epochs1 = 200
     batch_size1 = None
@@ -324,6 +338,9 @@ if __name__ == "__main__":
     is_boa1 = False
     is_toy1 = True
     use_cuda1 = True
+
+    age_dim1 = 3
+    trial_dim1 = 3
 
     # Load data
     train_data1 = OpenFaceDataset.load_dataset(working_dir=working_dir1, dataset_name="training_set", is_toy=is_toy1,
@@ -334,14 +351,15 @@ if __name__ == "__main__":
                                               is_boa=is_boa1)
 
     # Define Optuna model
-    n_trials1 = 2
+    n_trials1 = 50
     output_metric1 = "mcc"
     double_output1 = True
     optuna1 = OptunaParamFinder(model_name=model_name1, working_dir=working_dir1, task_type=task_type1,
                                 net_type=net_type1, epochs=epochs1, batch_size=batch_size1, val_epochs=val_epochs1,
                                 n_trials=n_trials1, separated_inputs=separated_inputs1, output_metric=output_metric1,
                                 double_output=double_output1, is_boa=is_boa1, is_toy=is_toy1, train_data=train_data1,
-                                val_data=val_data1, test_data=test_data1, use_cuda=use_cuda1)
+                                val_data=val_data1, test_data=test_data1, use_cuda=use_cuda1, age_dim=age_dim1,
+                                trial_dim=trial_dim1)
 
     # Run search
     optuna1.initialize_study()
