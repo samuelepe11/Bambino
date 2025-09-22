@@ -7,8 +7,8 @@ from Networks.StimulusConv1d import StimulusConv1d
 # Class
 class HierarchicalStimulusConv1d(StimulusConv1d):
 
-    def __init__(self, age_dim, trial_dim, params=None, n_classes=2, separated_inputs=True):
-        super(HierarchicalStimulusConv1d, self).__init__(is_2d=False, params=params, n_classes=n_classes,
+    def __init__(self, age_dim, trial_dim, params=None, n_classes=2, separated_inputs=True, is_2d=False):
+        super(HierarchicalStimulusConv1d, self).__init__(is_2d=is_2d, params=params, n_classes=n_classes,
                                                          separated_inputs=separated_inputs)
 
         # Define attributes

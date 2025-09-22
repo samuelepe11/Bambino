@@ -17,7 +17,8 @@ class ToyNetworkTrainer(NetworkTrainer):
     # Define class attributes
     results_fold = ToyOpenFaceDataset.results_fold
     models_fold = ToyOpenFaceDataset.models_fold
-    convergence_patience = 5
+    convergence_patience = 10
+    convergence_thresh = 1e-5
 
     def __init__(self, model_name, working_dir, net_type, epochs, val_epochs, params=None, use_cuda=False,
                  separated_inputs=True, train_data=None, val_data=None, test_data=None, s3=None, is_boa=False,
@@ -55,10 +56,10 @@ if __name__ == "__main__":
     # Define variables
     working_dir1 = "./../../"
     # model_name1 = "clinician_performance"
-    model_name1 = "hierarchical_stimulus_conv1d"
-    net_type1 = NetType.H_CONV1D
+    model_name1 = "hierarchical_stimulus_conv2d_big_optuna"
+    net_type1 = NetType.H_CONV2D
     epochs1 = 2
-    trial_n1 = None
+    trial_n1 = 32
     val_epochs1 = 10
     use_cuda1 = True
     separated_inputs1 = True
@@ -66,7 +67,7 @@ if __name__ == "__main__":
     assess_calibration1 = True
     perform_extra_analysis1 = False
     desired_class1 = 1
-    show_test1 = False
+    show_test1 = True
     show_pooled1 = True
 
     age_dim1 = 3
@@ -80,7 +81,9 @@ if __name__ == "__main__":
     # Define trainer
     # params1 = {"n_conv_neurons": 256, "n_conv_layers": 1, "kernel_size": 3, "hidden_dim": 32, "p_drop": 0.2,
     #            "n_extra_fc_after_conv": 0, "n_extra_fc_final": 1, "optimizer": "RMSprop", "lr": 0.01, "batch_size": 64}
-    params1 = {'n_conv_neurons': 1024, 'n_conv_layers': 1, 'kernel_size': 5, 'hidden_dim': 128, 'p_drop': 0.2, 'n_extra_fc_after_conv': 1, 'n_extra_fc_final': 2, 'optimizer': 'RMSprop', 'lr': 0.0001, 'batch_size': 16, 'n_age_fc_neurons': 2, 'n_age_fc_layers': 2, 'n_trial_fc_neurons': 3, 'n_trial_fc_layers': 1}
+    params1 = {"n_conv_neurons": 1024, "n_conv_layers": 1, "kernel_size": 5, "hidden_dim": 128, "p_drop": 0.2,
+               "n_extra_fc_after_conv": 1, "n_extra_fc_final": 2, "optimizer": "RMSprop", "lr": 0.0001, "batch_size": 16,
+               "n_age_fc_neurons": 2, "n_age_fc_layers": 2, "n_trial_fc_neurons": 3, "n_trial_fc_layers": 1}
     trainer1 = ToyNetworkTrainer(model_name=model_name1, working_dir=working_dir1, net_type=net_type1, epochs=epochs1,
                                  val_epochs=val_epochs1, params=params1, use_cuda=use_cuda1,
                                  separated_inputs=separated_inputs1, train_data=train_data1, val_data=val_data1, 
@@ -99,7 +102,7 @@ if __name__ == "__main__":
             "\n=======================================================================================================\n")'''
 
     # Train model
-    trainer1.train(show_epochs=True)
+    # trainer1.train(show_epochs=True)
     
     # Evaluate model
     trainer1 = ToyNetworkTrainer.load_model(working_dir=working_dir1, model_name=model_name1, trial_n=trial_n1,

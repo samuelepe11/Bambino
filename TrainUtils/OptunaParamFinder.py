@@ -150,22 +150,22 @@ class OptunaParamFinder:
         params = {
             "n_conv_neurons": int(2 ** (trial.suggest_int("n_conv_neurons", 8, 10, step=1))),
             "n_conv_layers": int(trial.suggest_int("n_conv_layers", 1, 3, step=1)),
-            "kernel_size": trial.suggest_int("kernel_size", 3, 5, step=2),
+            "kernel_size": trial.suggest_int("kernel_size", 3, 7, step=2),
             "hidden_dim": int(2 ** (trial.suggest_int("hidden_dim", 7, 10, step=1))),
             "p_drop": np.round(trial.suggest_float("p_drop", 0, 0.6, step=0.2), 1),
             "n_extra_fc_after_conv": int(trial.suggest_int("n_extra_fc_after_conv", 1, 3, step=1)),
-            "n_extra_fc_final": int(trial.suggest_int("n_extra_fc_final", 1, 3, step=1)),
-            "optimizer": trial.suggest_categorical("optimizer", ["RMSprop", "Adam"]),
+            "n_extra_fc_final": int(trial.suggest_int("n_extra_fc_final", 1, 4, step=1)),
+            "optimizer": trial.suggest_categorical("optimizer", ["RMSprop", "Adam", "SGD"]),
             "lr": np.round(10 ** (-1 * trial.suggest_int("lr", 1, 5, step=1)), 4),
-            "batch_size": int(2 ** (trial.suggest_int("batch_size", 4, 5, step=1))),
+            "batch_size": int(2 ** (trial.suggest_int("batch_size", 3, 5, step=1))),
         }
 
         if self.net_type in [NetType.H_CONV1D, NetType.H_CONV2D]:
             params_hierarchical = {
-                "n_age_fc_neurons": int(trial.suggest_int("n_age_fc_neurons", 2, 3, step=1)),
-                "n_age_fc_layers": int(trial.suggest_int("n_age_fc_layers", 1, 2, step=1)),
-                "n_trial_fc_neurons": int(trial.suggest_int("n_trial_fc_neurons", 2, 3, step=1)),
-                "n_trial_fc_layers": int(trial.suggest_int("n_trial_fc_layers", 1, 2, step=1)),
+                "n_age_fc_neurons": int(trial.suggest_int("n_age_fc_neurons", 2, 22, step=4)),
+                "n_age_fc_layers": int(trial.suggest_int("n_age_fc_layers", 1, 5, step=1)),
+                "n_trial_fc_neurons": int(trial.suggest_int("n_trial_fc_neurons", 2, 22, step=4)),
+                "n_trial_fc_layers": int(trial.suggest_int("n_trial_fc_layers", 1, 5, step=1)),
             }
             params = params | params_hierarchical
 
@@ -328,10 +328,10 @@ class OptunaParamFinder:
 if __name__ == "__main__":
     # Define variables
     working_dir1 = "./../../"
-    model_name1 = "hierarchical_stimulus_conv1d_optuna"
-    net_type1 = NetType.H_CONV1D
+    model_name1 = "hierarchical_stimulus_conv2d_big_optuna"
+    net_type1 = NetType.H_CONV2D
     task_type1 = TaskType.TRIAL
-    epochs1 = 200
+    epochs1 = 300
     batch_size1 = None
     val_epochs1 = 10
     separated_inputs1 = True
@@ -353,7 +353,7 @@ if __name__ == "__main__":
     # Define Optuna model
     n_trials1 = 50
     output_metric1 = "mcc"
-    double_output1 = True
+    double_output1 = False
     optuna1 = OptunaParamFinder(model_name=model_name1, working_dir=working_dir1, task_type=task_type1,
                                 net_type=net_type1, epochs=epochs1, batch_size=batch_size1, val_epochs=val_epochs1,
                                 n_trials=n_trials1, separated_inputs=separated_inputs1, output_metric=output_metric1,

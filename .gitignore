@@ -6,9 +6,12 @@ venv/
 DataUtils/.ipynb_checkpoints/
 Networks/.ipynb_checkpoints/
 Networks/__pycache__/
+Networks/__pycache__/StimulusConv1d.cpython-311.pyc
+Networks/__pycache__/StimulusConv2d.cpython-311.pyc
 TrainUtils/.ipynb_checkpoints/
 TrainUtils/__pycache__/
 TrainUtils/__pycache__/NetworkTrainer.cpython-311.pyc
-Networks/__pycache__/StimulusConv1d.cpython-311.pyc
 TrainUtils/__pycache__/StatsHolder.cpython-311.pyc
 Types/__pycache__/NetType.cpython-311.pyc
+Types/__pycache__/SetType.cpython-311.pyc
+Types/__pycache__/TaskType.cpython-311.pyc

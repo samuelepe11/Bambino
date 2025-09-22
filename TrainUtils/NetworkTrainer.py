@@ -26,6 +26,7 @@ from Types.NetType import NetType
 from Networks.StimulusConv1d import StimulusConv1d
 from Networks.StimulusConv2d import StimulusConv2d
 from Networks.HierarchicalStimulusConv1d import HierarchicalStimulusConv1d
+from Networks.HierarchicalStimulusConv2d import HierarchicalStimulusConv2d
 
 
 # Class
@@ -77,6 +78,10 @@ class NetworkTrainer:
             self.net = StimulusConv2d(params=params, separated_inputs=separated_inputs, n_classes=len(self.classes))
         elif net_type == NetType.H_CONV1D:
             self.net = HierarchicalStimulusConv1d(age_dim=age_dim, trial_dim=trial_dim, params=params,
+                                                  separated_inputs=separated_inputs, n_classes=len(self.classes))
+        else:
+            # net_type == NetType.H_CONV2D
+            self.net = HierarchicalStimulusConv2d(age_dim=age_dim, trial_dim=trial_dim, params=params,
                                                   separated_inputs=separated_inputs, n_classes=len(self.classes))
 
         # Define training parameters
