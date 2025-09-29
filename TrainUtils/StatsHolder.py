@@ -191,9 +191,18 @@ class StatsHolder:
                 selected_ticks_labels = [np.unique([values_list])[ind] for ind in selected_ticks]
                 plt.xticks(selected_ticks, selected_ticks_labels, size=10)
         else:
-            ax = sns.barplot(x="Metric type", y="Value", data=df, hue=extra_var, width=0.5,
-                             errorbar=("ci", 100 * (1 - alpha_ci)), err_kws={"linewidth": 1.5}, capsize=0.3,
-                             palette=sns.color_palette("dark:#5A9_r", n_colors=n_hue_levels))
+            try:
+                ax = sns.barplot(x="Metric type", y="Value", data=df, hue=extra_var, width=0.5,
+                                 errorbar=("ci", 100 * (1 - alpha_ci)), err_kws={"linewidth": 1.5}, capsize=0.3,
+                                 palette=sns.color_palette("dark:#5A9_r", n_colors=n_hue_levels))
+            except ValueError:
+                print(df.columns)
+                print(df.index.duplicated().any())
+                df = df.reset_index(drop=True)
+                ax = sns.barplot(x="Metric type", y="Value", data=df, hue=extra_var, width=0.5,
+                                 errorbar=("ci", 100 * (1 - alpha_ci)), err_kws={"linewidth": 1.5}, capsize=0.3,
+                                 palette=sns.color_palette("dark:#5A9_r", n_colors=n_hue_levels))
+
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)
         plt.ylim([0, 1])

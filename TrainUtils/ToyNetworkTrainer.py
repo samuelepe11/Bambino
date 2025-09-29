@@ -11,6 +11,10 @@ from Types.NetType import NetType
 from Types.SetType import SetType
 from DataUtils.OpenFaceDataset import OpenFaceDataset
 
+import warnings
+from sklearn.exceptions import UndefinedMetricWarning
+warnings.filterwarnings("ignore", category=UndefinedMetricWarning)
+
 
 # Class
 class ToyNetworkTrainer(NetworkTrainer):
@@ -56,16 +60,16 @@ if __name__ == "__main__":
     # Define variables
     working_dir1 = "./../../"
     # model_name1 = "clinician_performance"
-    model_name1 = "hierarchical_stimulus_conv2d_big_optuna"
+    model_name1 = "hierarchical_stimulus_conv1d_optuna"
     net_type1 = NetType.H_CONV2D
     epochs1 = 2
-    trial_n1 = 32
+    trial_n1 = 21  # 32
     val_epochs1 = 10
     use_cuda1 = True
     separated_inputs1 = True
     subjective_trial_stats1 = True
     assess_calibration1 = True
-    perform_extra_analysis1 = False
+    perform_extra_analysis1 = True
     desired_class1 = 1
     show_test1 = True
     show_pooled1 = True

@@ -46,10 +46,10 @@ class JAISystem:
         self.trainer.show_model()
 
     def get_cam(self, data_descr, target_layer_id, target_class, explainer_type, show=False, show_graphs=False,
-                x=None, y=None, cams_in_one_plot=False, normalize_jointly=False):
+                x=None, y=None, cams_in_one_plot=False, normalize_jointly=False, extra_info=None):
         if data_descr is not None:
-            x, y = self.get_item(data_descr)
-        cams, output_prob = self.draw_cam(self.trainer, x, target_layer_id, target_class, explainer_type)
+            x, y, extra_info = self.get_item(data_descr)
+        cams, output_prob = self.draw_cam(self.trainer, x, target_layer_id, target_class, explainer_type, extra_info=extra_info)
         real_signal_length = x["g"].shape[0] if self.is_toy and not self.is_boa else None
         if self.is_toy or self.is_boa:
             initial_pad_dim = OpenFaceDataset.time_stimulus * OpenFaceDataset.fc
@@ -77,8 +77,8 @@ class JAISystem:
         else:
             dataset = self.trainer.val_data
 
-        x, y = dataset.get_item(pt_id, data_descr["trial"])
-        return x, y
+        x, y, extra_info = dataset.get_item(pt_id, data_descr["trial"])
+        return x, y, extra_info
 
     def display_output(self, data_descr, target_layer_id, target_class, x, y, explainer_type, maps, output_prob,
                        show=False, show_graphs=False, averaged_folder=None, cams_in_one_plot=False,
@@ -312,7 +312,7 @@ class JAISystem:
         plt.close()
 
     @staticmethod
-    def draw_cam(trainer, x, target_layer_id, target_class, explainer_type):
+    def draw_cam(trainer, x, target_layer_id, target_class, explainer_type, extra_info=None):
         net = trainer.net
         net.set_training(False)
         net.set_cuda(False)
@@ -322,9 +322,9 @@ class JAISystem:
         cams = {}
         for block in x.keys():
             target_layer = "conv_" + block + target_layer_id
-            if isinstance(net.__dict__[target_layer], nn.Conv2d):
+            if isinstance(getattr(net, target_layer), nn.Conv2d):
                 is_2d = True
-            elif isinstance(net.__dict__[target_layer], nn.Conv1d):
+            elif isinstance(getattr(net, target_layer), nn.Conv1d):
                 is_2d = False
             else:
                 is_2d = None
@@ -332,7 +332,11 @@ class JAISystem:
 
             # Extract activations and gradients
             net.zero_grad()
-            output, target_activation = net(x, layer_interrupt=target_layer)
+            if not trainer.is_hierarc:
+                output, target_activation = net(x, layer_interrupt=target_layer)
+            else:
+                output, target_activation = trainer.net(x, layer_interrupt=target_layer, age=extra_info[0],
+                                                        trial_id=extra_info[1])
             target_score = output[:, target_class]
             target_score.backward()
             target_grad = net.gradients
@@ -421,8 +425,8 @@ if __name__ == "__main__":
     working_dir1 = "./../../"
 
     # Define the system
-    model_name1 = "stimulus_conv2d_optuna"
-    trial_n1 = 44
+    model_name1 = "hierarchical_stimulus_conv2d_optuna"
+    trial_n1 = 32
     use_cuda1 = False
     is_toy1 = True
     is_boa1 = False
@@ -432,7 +436,7 @@ if __name__ == "__main__":
     # Explain some items
     data_descriptions = [{"pt": "bam2_004", "trial": 7}, {"pt": "bam2_004", "trial": 9},
                          {"pt": "bam2_010", "trial": 16}, {"pt": "bam2_020", "trial": 32}]
-    target_layer_id1 = "1"
+    target_layer_id1 = "2"
     target_classes = [0, 1]
     explainer_types = [ExplainerType.GC, ExplainerType.HRC]
     show1 = False

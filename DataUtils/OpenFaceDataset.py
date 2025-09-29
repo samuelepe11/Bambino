@@ -245,8 +245,8 @@ class OpenFaceDataset(Dataset):
             print("Trial " + trial_id + " of patient " + pt_id + " not found!")
             return None
         else:
-            x, y, _ = self.__getitem__(idx)
-            return x, y
+            x, y, extra_info = self.__getitem__(idx)
+            return x, y, extra_info
 
     @staticmethod
     def interaction_count(var_list1, var_list2, var_labels1, var_labels2, var_name1, var_name2, output_path):

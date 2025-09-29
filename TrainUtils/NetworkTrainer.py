@@ -337,6 +337,8 @@ class NetworkTrainer:
                 speakers = []
         loss = 0
         net.set_training(False)
+        if data_loader.num_workers > 0:
+            data_loader.num_workers = 0
         with torch.no_grad():
             for x, y, extra_info in data_loader:
                 temp_loss, output, _ = self.apply_network(net, x, y, extra_info)
@@ -1093,7 +1095,7 @@ if __name__ == "__main__":
     # Train model
     print()
     print()
-    trainer1.train(show_epochs=True)
+    # trainer1.train(show_epochs=True)
 
     # Evaluate model
     trainer1 = NetworkTrainer.load_model(working_dir=working_dir1, model_name=model_name1, trial_n=trial_n1,
