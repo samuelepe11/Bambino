@@ -351,7 +351,7 @@ if __name__ == "__main__":
                                               is_boa=is_boa1)
 
     # Define Optuna model
-    n_trials1 = 50
+    n_trials1 = 100
     output_metric1 = "mcc"
     double_output1 = False
     optuna1 = OptunaParamFinder(model_name=model_name1, working_dir=working_dir1, task_type=task_type1,

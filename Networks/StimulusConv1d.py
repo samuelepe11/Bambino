@@ -104,7 +104,7 @@ class StimulusConv1d(nn.Module):
                     padding = (self.kernel_size - 1) // 2
                     pad_dims = (padding, padding) if not self.is_2d else (padding, padding, padding, padding)
                     out = F.pad(out, pad_dims)
-                    out = self.__dict__[conv_layer](out)
+                    out = getattr(self, conv_layer)(out)
                 if layer_interrupt == conv_layer:
                     target_activation = out
                     h = out.register_hook(self.activations_hook)
